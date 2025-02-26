@@ -1,0 +1,54 @@
+{% set data= load_setup_py_data() %}
+package:
+  name: ts-maintel-standardscripts
+  version: {{ data.get('version') }}
+
+source:
+  path: ../
+
+build:
+  noarch: generic
+  script: {{ PYTHON }} -m pip install --no-deps --ignore-installed .
+
+test:
+  requires:
+    - astroquery
+    - astroplan
+    - ts-conda-build =0.3
+    - ts-idl {{ idl_version }}
+    - ts-salobj {{ salobj_version }}
+    - ts-observatory-control
+    - ts-standardscripts
+  source_files:
+    - python
+    - tests
+    - setup.cfg
+    - pyproject.toml
+  imports:
+    - lsst.ts.maintel.standardscripts
+
+requirements:
+  host:
+    - python {{ python }}
+    - pip
+    - setuptools_scm
+    - setuptools
+  build:
+    - python {{ python }}
+    - setuptools_scm
+    - setuptools
+    - ts-conda-build =0.3
+    - astroquery
+    - astroplan
+    - ts-observatory-control
+    - ts-standardscripts
+  run:
+    - python {{ python }}
+    - setuptools
+    - setuptools_scm
+    - ts-idl
+    - ts-salobj
+    - astroquery
+    - astroplan
+    - ts-observatory-control
+    - ts-standardscripts

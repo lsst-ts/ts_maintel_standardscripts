@@ -1,3 +1,11 @@
 # -*- python -*-
-from lsst.sconsUtils import scripts
+import os
+
+from lsst.sconsUtils import env, scripts
+
 scripts.BasicSConscript.tests(pyList=[])
+
+for name in ("LSST_DDS_QOS", "OSPL_HOME", "OSPL_URI", "ADLINK_LICENSE"):
+    val = os.environ.get(name)
+    if val is not None:
+        env.AppendENVPath(name, val)
