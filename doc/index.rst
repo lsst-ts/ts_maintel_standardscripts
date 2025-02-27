@@ -1,51 +1,43 @@
 .. py:currentmodule:: lsst.ts.maintel.standardscripts
 
-.. _lsst.ts.maintel.standardscripts:
+.. _maintel_standardscripts:
 
-###############################
-lsst.ts.maintel.standardscripts
-###############################
+################
+Standard Scripts
+################
 
-.. Paragraph that describes what this Python module does and links to related modules and frameworks.
+.. image:: https://img.shields.io/badge/GitHub-ts_maintel_standardscripts-green.svg
+    :target: https://github.com/lsst-ts/ts_maintel_standardscripts
+.. image:: https://img.shields.io/badge/Jenkins-ts_maintel_standardscripts-green.svg
+    :target: https://tssw-ci.lsst.org/job/LSST_Telescope-and-Site/job/ts_maintel_standardscripts/
+.. image:: https://img.shields.io/badge/Jira-ts_maintel_standardscripts-green.svg
+    :target: https://jira.lsstcorp.org/issues/?jql=project%3DDM%20AND%20labels%3Dts_maintel_standardscripts
 
-.. .. _lsst.ts.maintel.standardscripts-using:
+Overview
+========
 
-.. Using lsst.ts.maintel.standardscripts
-.. =====================================
+The standard SAL scripts run by the `script queue <https://ts-scriptqueue.lsst.io>`_.
 
-.. toctree linking to topics related to using the module's APIs.
+User Documentation
+==================
 
-.. .. toctree::
-..    :maxdepth: 1
+To add a script to this package:
 
-.. _lsst.ts.maintel.standardscripts-contributing:
+* Read `SAL Scripts <https://ts-salobj.lsst.io/sal_scripts.html>`_ to learn the basics of writing a SAL script.
+* Add your script implementation to the library: ``python/lsst/ts/maintel/standardscripts``.
+* Add a test suite to the ``tests`` directory.
+* Add a bin script to the ``python/lsst/ts/maintel/standardscripts/data/scripts`` directory.
 
-Contributing
-============
+Developer Documentation
+=======================
 
-``lsst.ts.maintel.standardscripts`` is developed at https://github.com/lsst-ts/ts_maintel_standardscripts.
-You can find Jira issues for this module under the `ts_maintel_standardscripts <https://jira.lsstcorp.org/issues/?jql=project%20%3D%20DM%20AND%20component%20%3D%20ts_maintel_standardscripts>`_ component.
+.. toctree::
+    developer_guide
+    :maxdepth: 1
 
-.. If there are topics related to developing this module (rather than using it), link to this from a toctree placed here.
+Version History
+===============
 
-.. .. toctree::
-..    :maxdepth: 1
-
-.. .. _lsst.ts.maintel.standardscripts-scripts:
-
-.. Script reference
-.. ================
-
-.. .. TODO: Add an item to this toctree for each script reference topic in the scripts subdirectory.
-
-.. .. toctree::
-..    :maxdepth: 1
-
-.. .. _lsst.ts.maintel.standardscripts-pyapi:
-
-Python API reference
-====================
-
-.. automodapi:: lsst.ts.maintel.standardscripts
-   :no-main-docstr:
-   :no-inheritance-diagram:
+.. toctree::
+    version_history
+    :maxdepth: 1
