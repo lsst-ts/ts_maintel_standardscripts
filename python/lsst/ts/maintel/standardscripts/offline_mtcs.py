@@ -44,9 +44,7 @@ class OfflineMTCS(OfflineGroup):
     def __init__(self, index):
         super().__init__(index=index, descr="Put all MTCS components in offline state.")
 
-        self._mtcs = MTCS(
-            self.domain, intended_usage=MTCSUsages.StateTransition, log=self.log
-        )
+        self._mtcs = None
 
     @property
     def group(self):
@@ -74,3 +72,12 @@ class OfflineMTCS(OfflineGroup):
             "mtdome",
             "mtdometrajectory",
         }
+
+    async def configure(self, config):
+        if self._mtcs is None:
+            self._mtcs = MTCS(
+                self.domain, intended_usage=MTCSUsages.StateTransition, log=self.log
+            )
+            await self._mtcs.start_task
+
+        await super().configure(config=config)
