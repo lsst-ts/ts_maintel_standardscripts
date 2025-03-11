@@ -24,6 +24,7 @@ import unittest
 
 from lsst.ts import standardscripts
 from lsst.ts.maintel.standardscripts import CloseMirrorCovers
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 
 
 class TestCloseMirrorCovers(
@@ -37,7 +38,9 @@ class TestCloseMirrorCovers(
     @contextlib.asynccontextmanager
     async def make_dry_script(self):
         async with self.make_script(self):
-            self.script.mtcs = unittest.mock.AsyncMock()
+            self.script.mtcs = MTCS(
+                domain=self.script.domain, intended_usage=MTCSUsages.DryTest
+            )
             self.script.mtcs.assert_all_enabled = unittest.mock.AsyncMock()
             self.script.mtcs.close_m1_cover = unittest.mock.AsyncMock()
             yield
@@ -51,14 +54,14 @@ class TestCloseMirrorCovers(
             self.script.mtcs.close_m1_cover.assert_awaited_once()
 
     async def test_configure_ignore(self):
-        async with self.make_script():
+        async with self.make_dry_script():
             components = ["mtptg"]
             await self.configure_script(ignore=components)
 
             assert self.script.mtcs.check.mtptg is False
 
     async def test_configure_ignore_not_csc_component(self):
-        async with self.make_script():
+        async with self.make_dry_script():
             components = ["not_csc_comp", "mtptg"]
             await self.configure_script(ignore=components)
 
