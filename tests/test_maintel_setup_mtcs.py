@@ -25,6 +25,7 @@ import unittest.mock
 from lsst.ts import salobj, utils
 from lsst.ts.idl.enums import Script
 from lsst.ts.maintel.standardscripts import SetupMTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts import BaseScriptTestCase
 
 random.seed(47)  # for set_random_lsst_dds_partition_prefix
@@ -35,6 +36,11 @@ index_gen = utils.index_generator()
 class TestSetupMTCS(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
     async def basic_make_script(self, index):
         self.script = SetupMTCS(index=index, remotes=False)
+        self.script.mtcs = MTCS(
+            domain=self.script.domain,
+            log=self.script.log,
+            intended_usage=MTCSUsages.DryTest,
+        )
         self.script.checkpoints_activities = [
             (checkpoint, unittest.mock.AsyncMock())
             for checkpoint, _ in self.script.checkpoints_activities
