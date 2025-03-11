@@ -24,6 +24,7 @@ import unittest
 
 from lsst.ts import standardscripts
 from lsst.ts.maintel.standardscripts.prepare_for import PrepareForAlign
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 
 random.seed(47)  # for set_random_lsst_dds_partition_prefix
 
@@ -33,6 +34,9 @@ class TestPrepareForAlign(
 ):
     async def basic_make_script(self, index):
         self.script = PrepareForAlign(index=index)
+        self.script.mtcs = MTCS(
+            self.script.domain, intended_usage=MTCSUsages.DryTest, log=self.script.log
+        )
 
         return (self.script,)
 
