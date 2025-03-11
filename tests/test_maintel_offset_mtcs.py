@@ -25,6 +25,7 @@ import pytest
 from lsst.ts import salobj
 from lsst.ts.idl.enums.Script import ScriptState
 from lsst.ts.maintel.standardscripts import OffsetMTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts import BaseScriptTestCase
 
 
@@ -35,6 +36,11 @@ class TestOffsetMTCS(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
 
     async def basic_make_script(self, index):
         self.script = OffsetMTCS(index=index, add_remotes=False)
+        self.script.mtcs = MTCS(
+            domain=self.script.domain,
+            intended_usage=MTCSUsages.DryTest,
+            log=self.script.log,
+        )
 
         return (self.script,)
 
