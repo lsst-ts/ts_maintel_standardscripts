@@ -1,2 +1,0 @@
-Split `ts_maintel_standardscripts` repo from `ts_standardscripts`
-to focus exclusively on main telescope logic.

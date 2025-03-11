@@ -1,4 +1,0 @@
-General improvements to kafka compatibility.
-
-When trying to create the remotes on the init method we usually have some issues with the test cluster.
-By moving these to the configure state, as we have been doing recently with all scripts, it makes the script quicker to start and also reduces load on the testing kafka cluster.
