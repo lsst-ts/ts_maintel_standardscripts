@@ -23,7 +23,7 @@ __all__ = ["OffsetCameraHexapod"]
 
 import yaml
 from lsst.ts import salobj
-from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.observatory.control.maintel.mtcs import MTCS
 
 
 class OffsetCameraHexapod(salobj.BaseScript):
@@ -55,9 +55,7 @@ class OffsetCameraHexapod(salobj.BaseScript):
             descr="Perform a camera hexapod offset or reset the position of the provided axes.",
         )
 
-        mtcs_usage = None if add_remotes else MTCSUsages.DryTest
-
-        self.mtcs = MTCS(domain=self.domain, intended_usage=mtcs_usage, log=self.log)
+        self.mtcs = None
 
     @classmethod
     def get_schema(cls):
@@ -142,6 +140,10 @@ class OffsetCameraHexapod(salobj.BaseScript):
             If reset_axes is set to true, but no non-zero axis offsets
             are provided to reset.
         """
+
+        if self.mtcs is None:
+            self.mtcs = MTCS(domain=self.domain, log=self.log)
+            await self.mtcs.start_task
 
         # Initialize offsets with 0.0
         self.offsets = {

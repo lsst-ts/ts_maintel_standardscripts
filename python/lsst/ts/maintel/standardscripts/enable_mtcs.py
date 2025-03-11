@@ -63,9 +63,22 @@ class EnableMTCS(EnableGroup):
 
         self.config = None
 
-        self._mtcs = MTCS(
-            self.domain, intended_usage=MTCSUsages.StateTransition, log=self.log
-        )
+        self._mtcs = None
+
+    async def configure_mtcs(self) -> None:
+        if self._mtcs is None:
+            self.log.debug("Creating MTCS.")
+            self._mtcs = MTCS(
+                self.domain, intended_usage=MTCSUsages.StateTransition, log=self.log
+            )
+            await self._mtcs.start_task
+        else:
+            self.log.debug("MTCS already defined, skipping.")
+
+    async def configure(self, config):
+        await self.configure_mtcs()
+
+        await super().configure(config=config)
 
     @property
     def group(self):

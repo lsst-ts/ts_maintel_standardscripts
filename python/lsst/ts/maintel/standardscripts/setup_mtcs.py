@@ -24,7 +24,7 @@ __all__ = ["SetupMTCS"]
 import pandas as pd
 import yaml
 from lsst.ts import salobj
-from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.observatory.control.maintel.mtcs import MTCS
 
 
 class SetupMTCS(salobj.BaseScript):
@@ -79,27 +79,7 @@ class SetupMTCS(salobj.BaseScript):
         )
 
         self.config = None
-        self.mtcs = (
-            MTCS(domain=self.domain, log=self.log)
-            if remotes
-            else MTCS(
-                domain=self.domain, log=self.log, intended_usage=MTCSUsages.DryTest
-            )
-        )
-
-        self.checkpoints_activities = [
-            ("Check that MTCS Components have heartbeats", self.mtcs.assert_liveliness),
-            ("Start MTPtg", self.start_mtptg),
-            ("Prepare MTMount and MTRotator", self.prepare_mtmount_and_mtrotator),
-            ("Start MTMount", self.start_mtmount),
-            ("Start MTRotator", self.start_mtrotator),
-            ("Check Rotator and CCW", self.check_rotator_and_ccw),
-            ("Start MTM1M3", self.start_mtm1m3),
-            ("Start MTM2", self.start_mtm2),
-            ("Start Camera Hexapod", self.start_camera_hexapod),
-            ("Start M2 Hexapod", self.start_m2_hexapod),
-            ("Enable remaining components", self.mtcs.enable),
-        ]
+        self._checkpoints_activities = None
 
     @classmethod
     def get_schema(cls):
@@ -180,8 +160,40 @@ class SetupMTCS(salobj.BaseScript):
           Configuration data. See `get_schema` for information about data
           structure.
         """
+        if self.mtcs is None:
+            self.mtcs = MTCS(domain=self.domain, log=self.log)
+            await self.mtcs.start_task
+
         self.log.debug(f"Enable CCW following: {config.ccw_following}")
         self.config = config
+
+    @property
+    def checkpoints_activities(self):
+        """The checkpoints_activities property."""
+        return (
+            [
+                (
+                    "Check that MTCS Components have heartbeats",
+                    self.mtcs.assert_liveliness,
+                ),
+                ("Start MTPtg", self.start_mtptg),
+                ("Prepare MTMount and MTRotator", self.prepare_mtmount_and_mtrotator),
+                ("Start MTMount", self.start_mtmount),
+                ("Start MTRotator", self.start_mtrotator),
+                ("Check Rotator and CCW", self.check_rotator_and_ccw),
+                ("Start MTM1M3", self.start_mtm1m3),
+                ("Start MTM2", self.start_mtm2),
+                ("Start Camera Hexapod", self.start_camera_hexapod),
+                ("Start M2 Hexapod", self.start_m2_hexapod),
+                ("Enable remaining components", self.mtcs.enable),
+            ]
+            if self._checkpoints_activities is None
+            else self._checkpoints_activities
+        )
+
+    @checkpoints_activities.setter
+    def checkpoints_activities(self, value):
+        self._checkpoints_activities = value
 
     def set_metadata(self, metadata):
         """Set estimated duration of the script."""

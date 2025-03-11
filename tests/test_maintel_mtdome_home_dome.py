@@ -26,6 +26,7 @@ import pytest
 from lsst.ts import salobj, standardscripts
 from lsst.ts.idl.enums.Script import ScriptState
 from lsst.ts.maintel.standardscripts.mtdome import HomeDome
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 
 
 class TestHomeDome(
@@ -38,8 +39,12 @@ class TestHomeDome(
 
     @contextlib.asynccontextmanager
     async def make_dry_script(self):
-        async with self.make_script(self):
-            self.script.mtcs = unittest.mock.AsyncMock()
+        async with self.make_script():
+            self.script.mtcs = MTCS(
+                domain=self.script.domain,
+                intended_usage=MTCSUsages.DryTest,
+                log=self.script.log,
+            )
             self.script.mtcs.assert_all_enabled = unittest.mock.AsyncMock()
             self.script.mtcs.home_dome = unittest.mock.AsyncMock()
             yield
@@ -54,7 +59,7 @@ class TestHomeDome(
             self.script.mtcs.home_dome.assert_called_with(physical_az=300.0)
 
     async def test_config(self):
-        async with self.make_script():
+        async with self.make_dry_script():
             await self.configure_script(physical_az=300.0)
             assert self.script.physical_az == 300.0
 
@@ -66,21 +71,21 @@ class TestHomeDome(
             dict(physical_az=None),
         ]
 
-        async with self.make_script():
+        async with self.make_dry_script():
             for config in configs_bad:
                 with pytest.raises(salobj.ExpectedError):
                     await self.configure_script(**config)
                     assert self.script.state == ScriptState.CONFIGURE_FAILED
 
     async def test_configure_ignore(self):
-        async with self.make_script():
+        async with self.make_dry_script():
             components = ["mtptg"]
             await self.configure_script(physical_az=300.0, ignore=components)
 
             assert self.script.mtcs.check.mtptg is False
 
     async def test_configure_ignore_not_csc_component(self):
-        async with self.make_script():
+        async with self.make_dry_script():
             components = ["not_csc_comp", "mtptg"]
             await self.configure_script(physical_az=300.0, ignore=components)
 

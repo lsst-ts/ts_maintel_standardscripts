@@ -24,6 +24,7 @@ import unittest
 
 from lsst.ts import standardscripts
 from lsst.ts.maintel.standardscripts.mtmount import UnparkMount
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 
 
 class TestUnparkMount(
@@ -36,19 +37,23 @@ class TestUnparkMount(
     @contextlib.asynccontextmanager
     async def make_dry_script(self):
         async with self.make_script(self):
-            self.script.mtcs = unittest.mock.AsyncMock()
+            self.script.mtcs = MTCS(
+                domain=self.script.domain,
+                intended_usage=MTCSUsages.DryTest,
+                log=self.script.log,
+            )
             self.script.mtcs.assert_all_enabled = unittest.mock.AsyncMock()
             self.script.mtcs.unpark_mount = unittest.mock.AsyncMock()
             yield
 
     async def test_configure_ignore(self):
-        async with self.make_script():
+        async with self.make_dry_script():
             components = ["mtptg"]
             await self.configure_script(ignore=components)
             assert self.script.mtcs.check.mtptg is False
 
     async def test_configure_ignore_not_mtcs_component(self):
-        async with self.make_script():
+        async with self.make_dry_script():
             # Test the ignore feature with one non-MTCS component.
             components = ["not_mtcs_comp", "mtptg"]
             await self.configure_script(ignore=components)

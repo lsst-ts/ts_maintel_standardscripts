@@ -21,7 +21,7 @@
 
 __all__ = ["OffsetMTCS"]
 
-from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.observatory.control.maintel.mtcs import MTCS
 from lsst.ts.standardscripts.base_offset_tcs import BaseOffsetTCS
 
 
@@ -39,11 +39,15 @@ class OffsetMTCS(BaseOffsetTCS):
             index=index,
             descr="Perform an MTCS offset",
         )
+        self.mtcs = None
 
-        mtcs_usage = None if add_remotes else MTCSUsages.DryTest
+    async def configure(self, config):
 
-        self.mtcs = MTCS(domain=self.domain, intended_usage=mtcs_usage, log=self.log)
-        self.mtcs.check.mtm1m3 = False
+        if self.mtcs is None:
+            self.mtcs = MTCS(domain=self.domain, log=self.log)
+            await self.mtcs.start_task
+
+        await super().configure(config=config)
 
     @property
     def tcs(self):

@@ -23,7 +23,7 @@ __all__ = ["OffsetM2Hexapod"]
 
 import yaml
 from lsst.ts import salobj
-from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.observatory.control.maintel.mtcs import MTCS
 
 
 class OffsetM2Hexapod(salobj.BaseScript):
@@ -53,10 +53,6 @@ class OffsetM2Hexapod(salobj.BaseScript):
             index=index,
             descr="Perform a M2 hexapod offset or reset the position of the provided axes.",
         )
-
-        mtcs_usage = None if add_remotes else MTCSUsages.DryTest
-
-        self.mtcs = MTCS(domain=self.domain, intended_usage=mtcs_usage, log=self.log)
 
     @classmethod
     def get_schema(cls):
@@ -142,6 +138,9 @@ class OffsetM2Hexapod(salobj.BaseScript):
             are provided to reset.
         """
 
+        if self.mtcs is None:
+            self.mtcs = MTCS(domain=self.domain, log=self.log)
+            await self.mtcs.start_task
         # Initialize offsets with 0.0
         self.offsets = {
             axis: getattr(config, axis, 0.0) for axis in ["x", "y", "z", "u", "v"]

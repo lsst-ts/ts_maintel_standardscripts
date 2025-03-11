@@ -2,6 +2,6 @@
 DevelopPipeline(
     name: "ts_maintel_standardscripts",
     module_name: "lsst.ts.maintel.standardscripts",
-    extra_packages: ["lsst-ts/ts_cRIOpy", "lsst-ts/ts_observatory_control", "lsst-ts/ts_standardscripts"],
+    extra_packages: ["lsst-ts/ts_cRIOpy", "lsst-ts/ts_observatory_control", "lsst-ts/ts_standardscripts", "lsst-ts/ts_auxtel_standardscripts"],
     build_all_idl: true
 )
