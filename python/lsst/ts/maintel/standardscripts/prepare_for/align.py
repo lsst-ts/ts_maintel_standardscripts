@@ -23,7 +23,7 @@ __all__ = ["PrepareForAlign"]
 
 import yaml
 from lsst.ts import salobj
-from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.observatory.control.maintel.mtcs import MTCS
 
 
 class PrepareForAlign(salobj.BaseScript):
@@ -49,11 +49,7 @@ class PrepareForAlign(salobj.BaseScript):
 
         self.config = None
 
-        self.mtcs = MTCS(
-            domain=self.domain,
-            intended_usage=None if add_remotes else MTCSUsages.DryTest,
-            log=self.log,
-        )
+        self.mtcs = None
 
     @classmethod
     def get_schema(cls):
@@ -92,6 +88,13 @@ class PrepareForAlign(salobj.BaseScript):
         return yaml.safe_load(schema_yaml)
 
     async def configure(self, config):
+        if self.mtcs is None:
+            self.mtcs = MTCS(
+                domain=self.domain,
+                intended_usage=None,
+                log=self.log,
+            )
+            await self.mtcs.start_task
         self.tel_align_az = config.tel_align_az
         self.tel_align_el = config.tel_align_el
         self.tel_align_rot = config.tel_align_rot
