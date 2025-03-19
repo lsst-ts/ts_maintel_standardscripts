@@ -25,9 +25,10 @@ from unittest.mock import patch
 
 from lsst.ts import standardscripts
 from lsst.ts.idl.enums.Script import ScriptState
-from lsst.ts.maintel.standardscripts import Mode, TakeAOSSequenceComCam
+from lsst.ts.maintel.standardscripts import TakeAOSSequenceComCam
 from lsst.ts.observatory.control.maintel.comcam import ComCam, ComCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.standardscripts.base_take_aos_sequence import Mode
 from lsst.ts.utils import index_generator
 
 index_gen = index_generator()
@@ -45,7 +46,7 @@ class TestTakeAOSSequenceComCam(
             log=self.script.log,
         )
 
-        self.script.camera = ComCam(
+        self.script._camera = ComCam(
             domain=self.script.domain,
             intended_usage=ComCamUsages.DryTest,
             log=self.script.log,
@@ -54,12 +55,12 @@ class TestTakeAOSSequenceComCam(
         self.script.ocps = unittest.mock.AsyncMock()
 
         self.script.mtcs.offset_camera_hexapod = unittest.mock.AsyncMock()
-        self.script.camera.expose = unittest.mock.AsyncMock(
+        self.script._camera.expose = unittest.mock.AsyncMock(
             side_effect=self._get_visit_id
         )
-        self.script.camera.setup_instrument = unittest.mock.AsyncMock()
-        self.script.camera.rem.ccoods = unittest.mock.AsyncMock()
-        self.script.camera.rem.ccoods.configure_mock(
+        self.script._camera.setup_instrument = unittest.mock.AsyncMock()
+        self.script._camera.rem.ccoods = unittest.mock.AsyncMock()
+        self.script._camera.rem.ccoods.configure_mock(
             **{
                 "evt_imageInOODS.next.side_effect": self._get_next_image_in_oods,
             }
@@ -107,7 +108,7 @@ class TestTakeAOSSequenceComCam(
             self.script.mtcs.check.mtmount = True
             self.script.mtcs.check.mtrotator = True
             self.script.mtcs.check.mtm2 = True
-            self.script.camera.check.ccoods = True
+            self.script._camera.check.ccoods = True
 
             exposure_time = 15.0
             filter = "g"
@@ -132,13 +133,13 @@ class TestTakeAOSSequenceComCam(
             assert self.script.mtcs.check.mtmount
             assert not self.script.mtcs.check.mtrotator
             assert not self.script.mtcs.check.mtm2
-            assert not self.script.camera.check.ccoods
+            assert not self.script._camera.check.ccoods
 
     async def run_take_triplets_test(
         self, mock_ready_to_take_data=None, expect_exception=None
     ):
         async with self.make_script():
-            self.script.camera.ready_to_take_data = mock_ready_to_take_data
+            self.script._camera.ready_to_take_data = mock_ready_to_take_data
 
             exposure_time = 15.0
             filter = "g"
@@ -156,9 +157,9 @@ class TestTakeAOSSequenceComCam(
 
             # Wrap `take_cwfs` and `take_acq` to count calls
             with patch.object(
-                self.script.camera, "take_cwfs", wraps=self.script.camera.take_cwfs
+                self.script._camera, "take_cwfs", wraps=self.script._camera.take_cwfs
             ) as mock_take_cwfs, patch.object(
-                self.script.camera, "take_acq", wraps=self.script.camera.take_acq
+                self.script._camera, "take_acq", wraps=self.script._camera.take_acq
             ) as mock_take_acq:
 
                 if expect_exception is not None:
@@ -197,12 +198,12 @@ class TestTakeAOSSequenceComCam(
                     )
                 else:
                     with self.assertRaises(AttributeError):
-                        self.script.camera.ready_to_take_data.assert_not_called()
+                        self.script._camera.ready_to_take_data.assert_not_called()
 
                 self.assertEqual(
-                    self.script.camera.expose.await_count,
+                    self.script._camera.expose.await_count,
                     expected_expose_calls,
-                    f"expose was called {self.script.camera.expose.await_count} times, "
+                    f"expose was called {self.script._camera.expose.await_count} times, "
                     f"expected {expected_expose_calls}",
                 )
                 self.assertEqual(
@@ -235,8 +236,8 @@ class TestTakeAOSSequenceComCam(
 
     async def test_take_doublet(self):
         async with self.make_script():
-            self.script.camera.take_cwfs = unittest.mock.AsyncMock()
-            self.script.camera.take_acq = unittest.mock.AsyncMock()
+            self.script._camera.take_cwfs = unittest.mock.AsyncMock()
+            self.script._camera.take_acq = unittest.mock.AsyncMock()
 
             exposure_time = 15.0
             filter = "g"
@@ -254,8 +255,8 @@ class TestTakeAOSSequenceComCam(
 
             await self.run_script()
 
-            assert n_sequences == self.script.camera.take_cwfs.await_count
-            assert n_sequences == self.script.camera.take_acq.await_count
+            assert n_sequences == self.script._camera.take_cwfs.await_count
+            assert n_sequences == self.script._camera.take_acq.await_count
 
 
 if __name__ == "__main__":
