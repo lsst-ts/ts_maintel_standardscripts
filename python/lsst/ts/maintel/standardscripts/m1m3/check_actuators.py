@@ -24,7 +24,6 @@ __all__ = ["CheckActuators"]
 
 import asyncio
 import time
-import warnings
 
 import yaml
 
@@ -33,21 +32,13 @@ try:
 except ImportError:
     from lsst.ts.criopy.M1M3FATable import FATABLE as FATable
 
-from lsst.ts.idl.enums.MTM1M3 import BumpTest
 from lsst.ts.idl.enums.Script import ScriptState
 from lsst.ts.observatory.control.maintel.mtcs import MTCS
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
 from lsst.ts.utils import make_done_future
+from lsst.ts.xml.enums.MTM1M3 import BumpTest
+from lsst.ts.xml.enums.MTM1M3 import DetailedStates as DetailedState
 from lsst.ts.xml.tables.m1m3 import force_actuator_from_id
-
-try:
-    from lsst.ts.idl.enums.MTM1M3 import DetailedState
-except ImportError:
-    warnings.warn(
-        "Could not import MTM1M3 from lsst.ts.idl; importing from lsst.ts.xml",
-        UserWarning,
-    )
-    from lsst.ts.xml.enums.MTM1M3 import DetailedStates as DetailedState
 
 
 class CheckActuators(BaseBlockScript):
@@ -86,6 +77,9 @@ class CheckActuators(BaseBlockScript):
 
         # Actuators that will be effectively tested
         self.actuators_to_test = None
+
+        # Dictionary to capture failures with full details
+        self.failures = {}  # Initialize the failures attribute
 
     async def assert_feasibility(self):
         """Verify that the system is in a feasible state before
@@ -226,11 +220,51 @@ class CheckActuators(BaseBlockScript):
 
         return actuator_id in self.m1m3_secondary_actuator_ids
 
+    @staticmethod
+    def _get_failed_states():
+        """Determine the set of failure states based on the XML version.
+
+        Returns
+        -------
+        `set`
+            A set of failure states.
+        """
+        if hasattr(BumpTest, "FAILED"):
+            # Old XML version
+            return {BumpTest.FAILED}
+        else:
+            # New XML version with granular failure states
+            return {
+                BumpTest.FAILED_TIMEOUT,
+                BumpTest.FAILED_TESTEDPOSITIVE_OVERSHOOT,
+                BumpTest.FAILED_TESTEDPOSITIVE_UNDERSHOOT,
+                BumpTest.FAILED_TESTEDNEGATIVE_OVERSHOOT,
+                BumpTest.FAILED_TESTEDNEGATIVE_UNDERSHOOT,
+                BumpTest.FAILED_NONTESTEDPROBLEM,
+            }
+
     async def actuator_last_test_failed(self, actuator_id: int) -> bool:
-        """Determines whether the last bump test for a given actuator
-        failed."""
-        primary, secondary = await self.mtcs.get_m1m3_bump_test_status(actuator_id)
-        return primary == BumpTest.FAILED or secondary == BumpTest.FAILED
+        """Determines whether the last bump test for a given actuator failed.
+
+        Parameters
+        ----------
+        actuator_id : `int`
+            Actuator ID.
+
+        Returns
+        -------
+        `bool`
+            True if the last bump test failed, False otherwise.
+        """
+        primary_status, secondary_status = await self.mtcs.get_m1m3_bump_test_status(
+            actuator_id
+        )
+
+        # Get the failure states
+        failed_states = self._get_failed_states()
+
+        # Check if either primary or secondary status is in the failure states
+        return primary_status in failed_states or secondary_status in failed_states
 
     async def run_block(self):
         await self.assert_feasibility()
@@ -266,8 +300,11 @@ class CheckActuators(BaseBlockScript):
         # Put M1M3 in engineering mode
         await self.mtcs.enter_m1m3_engineering_mode()
 
-        # List to capture failures with full details
-        list_of_failures = []
+        # Dictionary to capture failures with full details
+        self.failures = {}
+
+        # Get the failure states
+        failed_states = self._get_failed_states()
 
         timer_task = make_done_future()
 
@@ -309,9 +346,6 @@ class CheckActuators(BaseBlockScript):
                     secondary=secondary_exist,
                 )
             except RuntimeError:
-                list_of_failures.append(
-                    (actuator_id, actuator_type, primary_index, None)
-                )
                 self.log.exception(
                     f"Failed to run bump test on FA ID {actuator_id}. Creating timer task for next test."
                 )
@@ -334,74 +368,24 @@ class CheckActuators(BaseBlockScript):
                 f"{primary_status.name.upper()}. {secondary_status_text}"
             )
 
-            # Check primary failure
-            if primary_status == BumpTest.FAILED:
-                self.log.debug(
-                    f"Primary failed for Actuator ID {actuator_id}, Pri Index {primary_index}"
-                )
-                primary_index_of_failure = primary_index
-            else:
-                primary_index_of_failure = None
-
-            # Check secondary failure
-            if secondary_exist and secondary_status == BumpTest.FAILED:
-                self.log.debug(
-                    f"Secondary failed for Actuator ID {actuator_id}, Sec Index {secondary_index}"
-                )
-                secondary_index_of_failure = secondary_index
-            else:
-                secondary_index_of_failure = None
-
-            # Find if actuator is already in list_of_failures
-            actuator_failure = next(
-                (item for item in list_of_failures if item[0] == actuator_id), None
+            # Record failures
+            primary_failure_type = (
+                primary_status.name if primary_status in failed_states else None
+            )
+            secondary_failure_type = (
+                secondary_status.name
+                if secondary_exist and secondary_status in failed_states
+                else None
             )
 
-            # Append or update failures in list_of_failures
-            if (
-                primary_index_of_failure is not None
-                or secondary_index_of_failure is not None
-            ):
-                if actuator_failure:
-                    # Update primary or secondary failure only if they failed
-                    updated_primary_index = (
-                        primary_index_of_failure
-                        if primary_index_of_failure is None
-                        else actuator_failure[2]  # Keep the original (None or failure)
-                    )
-                    updated_secondary_index = (
-                        secondary_index_of_failure
-                        if secondary_index_of_failure is not None
-                        else actuator_failure[3]  # Keep the original (None or failure)
-                    )
-
-                    # Only update the entry if the failure has changed
-                    list_of_failures[list_of_failures.index(actuator_failure)] = (
-                        actuator_id,
-                        actuator_type,
-                        updated_primary_index,
-                        updated_secondary_index,
-                    )
-                    self.log.debug(
-                        f"Updated in list_of_failures: Actuator ID {actuator_id}, Type {actuator_type}, "
-                        f"Primary Index {updated_primary_index}, Secondary Index {updated_secondary_index}"
-                    )
-                else:
-                    # Add new entry only with failure information
-                    # (ignores passed tests)
-                    list_of_failures.append(
-                        (
-                            actuator_id,
-                            actuator_type,
-                            primary_index_of_failure,
-                            secondary_index_of_failure,
-                        )
-                    )
-                    self.log.debug(
-                        f"Appending to list_of_failures: Actuator ID {actuator_id}, Type {actuator_type}, "
-                        f"Primary Index {primary_index_of_failure}, Secondary Index "
-                        f"{secondary_index_of_failure}."
-                    )
+            if primary_failure_type or secondary_failure_type:
+                self.failures[actuator_id] = {
+                    "type": actuator_type,
+                    "primary_index": primary_index,
+                    "secondary_index": secondary_index,
+                    "primary_failure": primary_failure_type,
+                    "secondary_failure": secondary_failure_type,
+                }
 
         end_time = time.monotonic()
         elapsed_time = end_time - start_time
@@ -411,42 +395,27 @@ class CheckActuators(BaseBlockScript):
             f"M1M3 bump test completed. It took {elapsed_time:.2f} seconds."
         )
 
-        # Generating final report from list_of_failures
-        if not list_of_failures:
+        # Generating final report from failures
+        if not self.failures:
             self.log.info("All actuators PASSED the bump test.")
         else:
             # Collect the failed actuator IDs for the header
-            failed_actuators_id = [fail[0] for fail in list_of_failures]
+            failed_actuators_id = list(self.failures.keys())
 
-            # Create formatted output for SAA and DAA failures
-            failed_saa_str = "\n".join(
-                f"  - Actuator ID {actuator_id}: Pri Index {primary_index}"
-                for actuator_id, actuator_type, primary_index, _ in list_of_failures
-                if actuator_type == "SAA" and primary_index is not None
-            )
-
-            failed_daa_str = "\n".join(
-                f"  - Actuator ID {actuator_id}: "
-                + (f"Pri Index {primary_index}" if primary_index is not None else "")
-                + (
-                    ", "
-                    if primary_index is not None and secondary_index is not None
-                    else ""
-                )
-                + (
-                    f"Sec Index {secondary_index}"
-                    if secondary_index is not None
-                    else ""
-                )
-                for actuator_id, actuator_type, primary_index, secondary_index in list_of_failures
-                if actuator_type == "DAA"
+            # Create formatted output for failures
+            failure_details = "\n".join(
+                f"  - Actuator ID {actuator_id}: Type {failure['type']}, "
+                f"Primary Index {failure['primary_index']}, Secondary Index "
+                f"{failure['secondary_index']}, Primary Failure "
+                f"{failure['primary_failure']}, Secondary Failure "
+                f"{failure['secondary_failure']}"
+                for actuator_id, failure in self.failures.items()
             )
 
             # Combine the header and the detailed report
             error_message = (
-                f"Actuators {sorted(set(failed_actuators_id))} FAILED the bump test.\n\n"
-                f"SAA (Single Actuator Axes) Failures:\n{failed_saa_str or '  None'}\n"
-                f"DAA (Dual Actuator Axes) Failures:\n{failed_daa_str or '  None'}"
+                f"Actuators {sorted(failed_actuators_id)} FAILED the bump test.\n\n"
+                f"Failure Details:\n{failure_details or '  None'}"
             )
 
             self.log.error(error_message)
