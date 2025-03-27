@@ -221,6 +221,7 @@ class TrackTargetAndTakeImageGenCam(BaseTrackTargetAndTakeImage):
                 group_id=self.group_id,
                 reason=self.config.reason,
                 program=self.config.program,
+                note=self.note,
             )
 
     async def stop_tracking(self):
