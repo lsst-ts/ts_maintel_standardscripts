@@ -19,13 +19,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-__all__ = ["TakeAOSSequenceComCam"]
-from lsst.ts.observatory.control.maintel.comcam import ComCam, ComCamUsages
+__all__ = ["TakeAOSSequenceLSSTCam"]
+
+from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.standardscripts.base_take_aos_sequence import BaseTakeAOSSequence
 
 
-class TakeAOSSequenceComCam(BaseTakeAOSSequence):
-    """Take aos sequence with ComCam.
+class TakeAOSSequenceLSSTCam(BaseTakeAOSSequence):
+    """Take aos sequence with LSSTCam.
 
     Parameters
     ----------
@@ -40,7 +41,7 @@ class TakeAOSSequenceComCam(BaseTakeAOSSequence):
 
     """
 
-    def __init__(self, index, descr="Take AOS sequence with ComCam.") -> None:
+    def __init__(self, index, descr="Take AOS sequence with LsstCam.") -> None:
         super().__init__(index=index, descr=descr)
 
         self._camera = None
@@ -53,8 +54,8 @@ class TakeAOSSequenceComCam(BaseTakeAOSSequence):
         """Handle creating the camera object and waiting remote to start."""
         if self._camera is None:
             self.log.debug("Creating Camera.")
-            self._camera = ComCam(
-                self.domain, intended_usage=ComCamUsages.TakeImage, log=self.log
+            self._camera = LSSTCam(
+                self.domain, intended_usage=LSSTCamUsages.TakeImage, log=self.log
             )
             await self._camera.start_task
         else:
@@ -67,4 +68,4 @@ class TakeAOSSequenceComCam(BaseTakeAOSSequence):
         -------
         instrument_name: `string`
         """
-        return "LSSTComCam"
+        return "LSSTCam"
