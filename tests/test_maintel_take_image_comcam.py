@@ -25,6 +25,8 @@ import unittest
 import pytest
 from lsst.ts import salobj, standardscripts
 from lsst.ts.maintel.standardscripts import TakeImageComCam
+from lsst.ts.observatory.control.maintel.comcam import ComCam, ComCamUsages
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.xml.enums import Script
 
 random.seed(47)  # for set_random_lsst_dds_partition_prefix
@@ -35,6 +37,12 @@ class TestTakeImageComCam(
 ):
     async def basic_make_script(self, index):
         self.script = TakeImageComCam(index=index)
+        self.script.mtcs = MTCS(
+            domain=self.script.domain, intended_usage=MTCSUsages.DryTest
+        )
+        self.script._comcam = ComCam(
+            domain=self.script.domain, intended_usage=ComCamUsages.DryTest
+        )
 
         return (self.script,)
 
