@@ -48,14 +48,8 @@ class TakeImageComCam(BaseTakeImage):
 
         self.config = None
 
-        self.mtcs = MTCS(self.domain, log=self.log, intended_usage=MTCSUsages.Slew)
-
-        self._comcam = ComCam(
-            self.domain,
-            intended_usage=ComCamUsages.TakeImage,
-            log=self.log,
-            tcs_ready_to_take_data=self.mtcs.ready_to_take_data,
-        )
+        self.mtcs = None
+        self._comcam = None
 
         self.instrument_name = "LSSTComCam"
 
@@ -94,6 +88,23 @@ class TakeImageComCam(BaseTakeImage):
             schema_dict["properties"][prop] = base_schema_dict["properties"][prop]
 
         return schema_dict
+
+    async def configure(self, config):
+        if self.mtcs is None:
+            self.mtcs = MTCS(self.domain, log=self.log, intended_usage=MTCSUsages.Slew)
+            await self.mtcs.start_task
+
+        if self._comcam is None:
+
+            self._comcam = ComCam(
+                self.domain,
+                intended_usage=ComCamUsages.TakeImage,
+                log=self.log,
+                tcs_ready_to_take_data=self.mtcs.ready_to_take_data,
+            )
+            await self._comcam.start_task
+
+        await super().configure(config=config)
 
     def get_instrument_name(self):
         if self.config is not None and self.config.sim:
