@@ -118,6 +118,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                     group_id=self.script.group_id,
                     reason=configuration_full["reason"],
                     program=configuration_full["program"],
+                    note=configuration_full["note"],
                 )
                 for exptime in configuration_full["exp_times"]
             ]
@@ -172,6 +173,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                     group_id=self.script.group_id,
                     reason=configuration_full["reason"],
                     program=configuration_full["program"],
+                    note=configuration_full["note"],
                 )
                 for exptime in configuration_full["exp_times"]
             ]
@@ -324,6 +326,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                     group_id=self.script.group_id,
                     reason=configuration_full["reason"],
                     program=configuration_full["program"],
+                    note=configuration_full["note"],
                 )
             ]
 
@@ -373,6 +376,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
             band_filter=band_filter,
             reason="Unit testing",
             program="UTEST",
+            note="Note_utest",
         )
 
         await self.configure_script(**configuration_full)
@@ -396,9 +400,10 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
         group_id,
         reason,
         program,
+        note,
     ):
         self.log.debug(
-            f"exptime: {exptime}s, group_id: {group_id}, reason: {reason}, program: {program}"
+            f"exptime: {exptime}s, group_id: {group_id}, reason: {reason}, program: {program}, note: {note}"
         )
         await asyncio.sleep(exptime)
 

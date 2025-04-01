@@ -107,6 +107,7 @@ class TestMainTelTrackTargetAndTakeImageGenCam(
             exp_times=[0, 0],
             reason="Unit testing",
             program="UTEST",
+            note="Note_utest",
             generic_camera=generic_camera,
             band_filter="",
         )
@@ -181,9 +182,10 @@ class TestMainTelTrackTargetAndTakeImageGenCam(
         group_id,
         reason,
         program,
+        note,
     ):
         self.log.debug(
-            f"exptime: {exptime}s, group_id: {group_id}, reason: {reason}, program: {program}"
+            f"exptime: {exptime}s, group_id: {group_id}, reason: {reason}, program: {program}, note: {note}"
         )
         await asyncio.sleep(exptime)
 
@@ -290,6 +292,7 @@ class TestMainTelTrackTargetAndTakeImageGenCam(
                             group_id=self.script.group_id,
                             reason=configuration_full["reason"],
                             program=configuration_full["program"],
+                            note=configuration_full["note"],
                         )
                     ]
                     cam.take_object.assert_has_awaits(gencam_take_object_calls)
