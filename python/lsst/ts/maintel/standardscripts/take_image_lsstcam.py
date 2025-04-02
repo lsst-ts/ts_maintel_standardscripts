@@ -51,7 +51,7 @@ class TakeImageLSSTCam(BaseTakeImage):
         self.mtcs = None
         self._lsstcam = None
 
-        self.instrument_setup_time = self._lsstcam.filter_change_timeout
+        self.instrument_setup_time = 0.0
 
         self.instrument_name = "LSSTCam"
 
@@ -154,7 +154,9 @@ class TakeImageLSSTCam(BaseTakeImage):
                 log=self.log,
                 tcs_ready_to_take_data=self.mtcs.ready_to_take_data,
             )
-            self._lsstcam.start_task
+            await self._lsstcam.start_task
+
+            self.instrument_setup_time = self._lsstcam.filter_change_timeout
 
         await super().configure(config=config)
 
