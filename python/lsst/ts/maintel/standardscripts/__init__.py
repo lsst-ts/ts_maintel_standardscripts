@@ -21,6 +21,7 @@
 
 from .apply_dof import *
 from .base_close_loop import *
+from .change_filter_lsstcam import *
 from .close_loop_comcam import *
 from .close_loop_lsstcam import *
 from .close_mirror_covers import *
