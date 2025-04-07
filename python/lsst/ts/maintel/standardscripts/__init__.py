@@ -31,6 +31,7 @@ from .disable_hexapod_compensation_mode import *
 from .enable_aos_closed_loop import *
 from .enable_comcam import *
 from .enable_hexapod_compensation_mode import *
+from .enable_lsstcam import *
 from .enable_mtcs import *
 from .focus_sweep_comcam import *
 from .focus_sweep_lsstcam import *
