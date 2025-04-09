@@ -1,0 +1,1 @@
+Fix `base_close_loop` to take an image while waiting for the LSSTCam WEP RA results.
