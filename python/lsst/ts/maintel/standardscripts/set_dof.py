@@ -114,7 +114,7 @@ class SetDOF(ApplyDOF):
         config : `types.SimpleNamespace`
             Script configuration, as defined by `schema`.
         """
-        await super(ApplyDOF, self).configure(config)
+        await super().configure(config)
 
         self.day = getattr(config, "day", None)
         self.seq = getattr(config, "seq", None)
