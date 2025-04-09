@@ -120,6 +120,7 @@ class TestCloseLoopLSSTCam(
             filter = "r"
             used_dofs = ["M2_dz", "M2_dx", "M2_dy", "M2_rx", "M2_ry"]
             threshold = [0.005] * 50
+            truncation_index = 22
             apply_corrections = True
 
             await self.configure_script(
@@ -129,6 +130,7 @@ class TestCloseLoopLSSTCam(
                 filter=filter,
                 used_dofs=used_dofs,
                 threshold=threshold,
+                truncation_index=truncation_index,
                 apply_corrections=apply_corrections,
             )
 
@@ -141,6 +143,7 @@ class TestCloseLoopLSSTCam(
             configured_dofs[:5] += 1
             assert all(self.script.used_dofs == configured_dofs)
             assert self.script.threshold == threshold
+            assert self.script.truncation_index == truncation_index
             assert self.script.apply_corrections == apply_corrections
 
     async def test_configure_wep_config(self):

@@ -212,6 +212,11 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                         type: number
                     - type: number
                 default: 0
+              truncation_index:
+                description: >-
+                    Truncation index to use for the estimating the state.
+                type: integer
+                default: 20
               apply_corrections:
                 description: >-
                     Apply OFC corrections after each iteration.
@@ -286,6 +291,7 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
         self.apply_corrections = config.apply_corrections
 
         self.gain_sequence = config.gain_sequence
+        self.truncation_index = config.truncation_index
 
         if hasattr(config, "ignore"):
             self.mtcs.disable_checks_for_components(components=config.ignore)
@@ -472,6 +478,7 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
         config = {
             "filter_name": self.filter,
             "rotation_angle": rotation_angle,
+            "truncation_index": self.truncation_index,
             "comp_dof_idx": {
                 "m2HexPos": [float(val) for val in self.used_dofs[:5]],
                 "camHexPos": [float(val) for val in self.used_dofs[5:10]],
