@@ -1,0 +1,1 @@
+Add truncation_index as a configurable parameter to `close_loop_lsstcam.py`.
