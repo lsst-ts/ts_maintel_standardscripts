@@ -26,7 +26,13 @@ import os
 import numpy as np
 import yaml
 from astropy.time import Time, TimeDelta
-from lsst_efd_client import EfdClient
+
+try:
+    from lsst_efd_client import EfdClient
+except ImportError:
+    import warnings
+
+    warnings.warn("Could not import lsst_efd_client library.")
 
 from .apply_dof import ApplyDOF
 
