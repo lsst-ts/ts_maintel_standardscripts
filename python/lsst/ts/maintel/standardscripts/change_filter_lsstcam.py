@@ -117,7 +117,7 @@ class ChangeFilterLSSTCam(salobj.BaseScript):
                 self.mtcs.disable_checks_for_components(components=config.ignore)
 
     def set_metadata(self, metadata):
-        pass
+        metadata.duration = self.lsstcam.filter_change_timeout
 
     async def run(self):
         if self.config.config_tcs:
