@@ -26,7 +26,7 @@ import typing
 import numpy as np
 import yaml
 from lsst.ts import salobj
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.utils.enums import DOFName
 
 
@@ -65,6 +65,9 @@ class ApplyDOF(salobj.BaseScript):
             self.mtcs = MTCS(
                 domain=self.domain,
                 log=self.log,
+                intended_usage=MTCSUsages.Slew
+                | MTCSUsages.StateTransition
+                | MTCSUsages.AOS,
             )
             await self.mtcs.start_task
         else:
