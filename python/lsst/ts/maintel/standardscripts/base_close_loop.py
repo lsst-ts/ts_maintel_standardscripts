@@ -435,14 +435,28 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
             filter=self.filter,
             note=self.note,
         )
-
-        # Set visit id
         visit_id = int(image[0])
+
+        take_second_snap_task = asyncio.create_task(
+            self.camera.take_acq(
+                self.exposure_time,
+                group_id=supplemented_group_id,
+                reason="INFOCUS" + ("" if self.reason is None else f"_{self.reason}"),
+                program=self.program,
+                filter=self.filter,
+                note=self.note,
+            )
+        )
 
         # Run WEP
         await self.mtcs.rem.mtaos.cmd_runWEP.set_start(
-            visitId=visit_id, timeout=2 * CMD_TIMEOUT, config=self.wep_config
+            visitId=visit_id,
+            extraId=None,
+            useOCPS=self.use_ocps,
+            config=self.wep_config,
+            timeout=2 * CMD_TIMEOUT,
         )
+        await take_second_snap_task
 
     async def compute_ofc_offsets(self, rotation_angle: float, gain: float) -> None:
         """Compute offsets using ts_ofc.
