@@ -30,7 +30,7 @@ import numpy as np
 import yaml
 from lsst.ts import salobj
 from lsst.ts.observatory.control import BaseCamera
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.utils.enums import ClosedLoopMode, DOFName
 
 STD_TIMEOUT = 10
@@ -119,6 +119,9 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
             self.mtcs = MTCS(
                 domain=self.domain,
                 log=self.log,
+                intended_usage=MTCSUsages.Slew
+                | MTCSUsages.StateTransition
+                | MTCSUsages.AOS,
             )
             await self.mtcs.start_task
         else:
