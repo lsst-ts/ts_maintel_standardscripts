@@ -157,7 +157,7 @@ class SetDOF(ApplyDOF):
         """
 
         client = await self.get_efd_client()
-        end_time = self.get_image_time(client, self.day, self.seq)
+        end_time = await self.get_image_time(client, self.day, self.seq)
 
         topics = [f"aggregatedDoF{i}" for i in range(50)]
         lookback_interval = TimeDelta(1, format="jd")
