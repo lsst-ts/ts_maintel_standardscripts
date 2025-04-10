@@ -25,7 +25,9 @@ from .change_filter_lsstcam import *
 from .close_loop_comcam import *
 from .close_loop_lsstcam import *
 from .close_mirror_covers import *
+from .disable_aos_closed_loop import *
 from .disable_hexapod_compensation_mode import *
+from .enable_aos_closed_loop import *
 from .enable_comcam import *
 from .enable_hexapod_compensation_mode import *
 from .enable_mtcs import *
