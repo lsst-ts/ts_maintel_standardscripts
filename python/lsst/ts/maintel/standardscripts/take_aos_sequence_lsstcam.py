@@ -55,7 +55,9 @@ class TakeAOSSequenceLSSTCam(BaseTakeAOSSequence):
         if self._camera is None:
             self.log.debug("Creating Camera.")
             self._camera = LSSTCam(
-                self.domain, intended_usage=LSSTCamUsages.TakeImage, log=self.log
+                self.domain,
+                intended_usage=LSSTCamUsages.TakeImage | LSSTCamUsages.StateTransition,
+                log=self.log,
             )
             await self._camera.start_task
         else:
