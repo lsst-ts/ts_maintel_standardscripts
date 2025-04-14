@@ -449,7 +449,7 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
         take_second_snap_task = asyncio.create_task(
             self.camera.take_acq(
                 self.exposure_time,
-                group_id=supplemented_group_id,
+                group_id=self.group_id,
                 reason="INFOCUS" + ("" if self.reason is None else f"_{self.reason}"),
                 program=self.program,
                 filter=self.filter,
