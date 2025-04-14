@@ -90,12 +90,6 @@ class SetDOF(ApplyDOF):
                 type: string
                 enum: ["MTCamera", "CCCamera"]
                 default: "MTCamera"
-            anyOf:
-                - required:
-                    - day
-                    - seq
-                - required:
-                    - dofs
             additionalProperties: false
         """
         schema_dict = yaml.safe_load(schema_yaml)
