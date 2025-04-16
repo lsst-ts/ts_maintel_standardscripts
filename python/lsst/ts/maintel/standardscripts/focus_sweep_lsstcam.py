@@ -72,7 +72,9 @@ class FocusSweepLSSTCam(BaseFocusSweep):
         if self.lsstcam is None:
             self.log.debug("Creating Camera.")
             self.lsstcam = LSSTCam(
-                self.domain, intended_usage=LSSTCamUsages.TakeImage, log=self.log
+                self.domain,
+                intended_usage=LSSTCamUsages.TakeImage | LSSTCamUsages.StateTransition,
+                log=self.log,
             )
             await self.lsstcam.start_task
         else:
