@@ -43,7 +43,7 @@ class FocusSweepLSSTCam(BaseFocusSweep):
         super().__init__(index=index, descr=descr)
 
         self.mtcs = None
-        self.LSSTCam = None
+        self.lsstcam = None
 
         self.instrument_name = "LSSTCam"
 
