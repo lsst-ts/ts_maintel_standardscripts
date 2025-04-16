@@ -479,8 +479,9 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
             Gain to apply to the offsets.
         """
         # Create the config to run OFC
+        filter = self.filter if self.filter is not None else "r_57"
         config = {
-            "filter_name": self.filter,
+            "filter_name": filter,
             "rotation_angle": rotation_angle,
             "truncation_index": self.truncation_index,
             "comp_dof_idx": {
