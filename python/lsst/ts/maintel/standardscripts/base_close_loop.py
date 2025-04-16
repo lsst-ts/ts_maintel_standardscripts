@@ -146,7 +146,10 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                 default: CWFS
               filter:
                 description: Which filter to use when taking intra/extra focal images.
-                type: string
+                oneOf:
+                  - type: string
+                  - type: "null"
+                default: null
               exposure_time:
                 description: The exposure time to use when taking images (sec).
                 type: number
@@ -238,8 +241,6 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                   items:
                       type: string
             additionalProperties: false
-            required:
-              - filter
         """
         return yaml.safe_load(schema_yaml)
 
