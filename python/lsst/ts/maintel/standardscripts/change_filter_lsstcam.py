@@ -125,4 +125,4 @@ class ChangeFilterLSSTCam(salobj.BaseScript):
 
         await self.lsstcam.assert_all_enabled()
 
-        self.lsstcam.setup_instrument(filter=self.filter)
+        await self.lsstcam.setup_instrument(filter=self.filter)
