@@ -38,6 +38,7 @@ class AlignComponent(enum.IntEnum):
     Camera = 3
     TMA_CENTRAL = 4
     TMA_UPPER = 5
+    CALIBRATION_SCREEN = 6
 
 
 class Align(BaseBlockScript):
