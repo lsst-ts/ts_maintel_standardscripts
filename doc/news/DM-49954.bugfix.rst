@@ -1,0 +1,3 @@
+In ``set_dof.py``:
+- add missing awaits in ApplyDOF and get_image calls
+- fix call to super in the configure method

@@ -1,0 +1,5 @@
+In base_close_loop.py:
+- limit resources of MTCS
+- Fix group_id in second exposure while waiting for RA in close_loop
+- Make filter not required
+- Add default filter if no filter provided
