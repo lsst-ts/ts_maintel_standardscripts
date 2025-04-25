@@ -54,6 +54,10 @@ class TakeImageComCam(BaseTakeImage):
         self.instrument_name = "LSSTComCam"
 
     @property
+    def tcs(self):
+        return self.mtcs
+
+    @property
     def camera(self):
         return self._comcam
 
