@@ -26,7 +26,13 @@ import os
 import numpy as np
 import yaml
 from astropy.time import Time, TimeDelta
-from lsst_efd_client import EfdClient
+
+try:
+    from lsst_efd_client import EfdClient
+except ImportError:
+    import warnings
+
+    warnings.warn("Could not import lsst_efd_client library.")
 
 from .apply_dof import ApplyDOF
 
@@ -84,12 +90,6 @@ class SetDOF(ApplyDOF):
                 type: string
                 enum: ["MTCamera", "CCCamera"]
                 default: "MTCamera"
-            anyOf:
-                - required:
-                    - day
-                    - seq
-                - required:
-                    - dofs
             additionalProperties: false
         """
         schema_dict = yaml.safe_load(schema_yaml)
@@ -108,7 +108,7 @@ class SetDOF(ApplyDOF):
         config : `types.SimpleNamespace`
             Script configuration, as defined by `schema`.
         """
-        super(ApplyDOF, self).configure(config)
+        await super().configure(config)
 
         self.day = getattr(config, "day", None)
         self.seq = getattr(config, "seq", None)
@@ -151,7 +151,7 @@ class SetDOF(ApplyDOF):
         """
 
         client = await self.get_efd_client()
-        end_time = self.get_image_time(client, self.day, self.seq)
+        end_time = await self.get_image_time(client, self.day, self.seq)
 
         topics = [f"aggregatedDoF{i}" for i in range(50)]
         lookback_interval = TimeDelta(1, format="jd")

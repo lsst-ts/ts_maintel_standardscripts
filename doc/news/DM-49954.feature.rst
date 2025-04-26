@@ -1,0 +1,3 @@
+In ``track_target_and_take_image_lsstcam.py``:
+- add MTCS instancte to LSSTCam so it can handle filter changes correctly.
+- add mechanism to wait for MTAOS to be ready to take image.

@@ -30,7 +30,7 @@ import numpy as np
 import yaml
 from lsst.ts import salobj
 from lsst.ts.observatory.control import BaseCamera
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.utils.enums import ClosedLoopMode, DOFName
 
 STD_TIMEOUT = 10
@@ -119,6 +119,9 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
             self.mtcs = MTCS(
                 domain=self.domain,
                 log=self.log,
+                intended_usage=MTCSUsages.Slew
+                | MTCSUsages.StateTransition
+                | MTCSUsages.AOS,
             )
             await self.mtcs.start_task
         else:
@@ -143,7 +146,10 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                 default: CWFS
               filter:
                 description: Which filter to use when taking intra/extra focal images.
-                type: string
+                oneOf:
+                  - type: string
+                  - type: "null"
+                default: null
               exposure_time:
                 description: The exposure time to use when taking images (sec).
                 type: number
@@ -235,8 +241,6 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                   items:
                       type: string
             additionalProperties: false
-            required:
-              - filter
         """
         return yaml.safe_load(schema_yaml)
 
@@ -446,7 +450,7 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
         take_second_snap_task = asyncio.create_task(
             self.camera.take_acq(
                 self.exposure_time,
-                group_id=supplemented_group_id,
+                group_id=self.group_id,
                 reason="INFOCUS" + ("" if self.reason is None else f"_{self.reason}"),
                 program=self.program,
                 filter=self.filter,
@@ -475,8 +479,9 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
             Gain to apply to the offsets.
         """
         # Create the config to run OFC
+        filter = self.filter if self.filter is not None else "r_57"
         config = {
-            "filter_name": self.filter,
+            "filter_name": filter,
             "rotation_angle": rotation_angle,
             "truncation_index": self.truncation_index,
             "comp_dof_idx": {

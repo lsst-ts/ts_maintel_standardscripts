@@ -52,6 +52,7 @@ class StopRotator(salobj.BaseScript):
     async def configure(self, config):
         if self.mtcs is None:
             self.mtcs = MTCS(domain=self.domain, log=self.log)
+            await self.mtcs.start_task
 
     def set_metadata(self, metadata):
         metadata.duration = self.mtcs.tel_settle_time

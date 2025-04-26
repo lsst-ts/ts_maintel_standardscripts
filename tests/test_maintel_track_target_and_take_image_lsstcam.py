@@ -33,6 +33,7 @@ from lsst.ts.maintel.standardscripts.track_target_and_take_image_lsstcam import 
     TrackTargetAndTakeImageLSSTCam,
 )
 from lsst.ts.observatory.control.utils import RotType
+from lsst.ts.xml.enums.MTAOS import ClosedLoopState
 
 logging.basicConfig()
 
@@ -56,6 +57,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
         self.current_filter = "r"
         self.available_filters = ["g", "r", "i"]
         self.rotator_position = 0.0  # deg
+        self.mtaos_closed_loop_state = ClosedLoopState.IDLE
         self.rotator_velocity = 10.0  # deg/s
         self.rot_sky_emulate_zero = 45.0
         self._handle_slew_calls = 0
@@ -344,7 +346,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
         self.script.mtcs.stop_tracking = unittest.mock.AsyncMock()
         self.script.mtcs.check_tracking = unittest.mock.AsyncMock()
         self.script.mtcs.rem = types.SimpleNamespace(
-            mtrotator=unittest.mock.AsyncMock()
+            mtrotator=unittest.mock.AsyncMock(), mtaos=unittest.mock.AsyncMock()
         )
         self.script.lsstcam.setup_filter = unittest.mock.AsyncMock(
             side_effect=self.set_filter
@@ -358,6 +360,9 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
 
         self.script.mtcs.rem.mtrotator.configure_mock(
             **{"tel_rotation.next.side_effect": self.get_rotator_position}
+        )
+        self.script.mtcs.rem.mtaos.configure_mock(
+            **{"evt_closedLoopState.aget.side_effect": self.get_closed_loop_state}
         )
 
         yield
@@ -424,6 +429,9 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
         if flush:
             await asyncio.sleep(timeout / 2.0)
         return types.SimpleNamespace(actualPosition=self.rotator_position)
+
+    async def get_closed_loop_state(self):
+        return types.SimpleNamespace(state=self.mtaos_closed_loop_state)
 
     async def handle_slew_icrs(self, rot, rot_type, **kwargs):
         self._handle_slew_calls += 1

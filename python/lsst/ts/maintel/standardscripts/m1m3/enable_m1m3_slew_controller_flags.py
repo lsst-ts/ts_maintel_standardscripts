@@ -163,7 +163,6 @@ class EnableM1M3SlewControllerFlags(BaseBlockScript):
 
     async def run_block(self):
 
-        async with self.mtcs.m1m3_in_engineering_mode():
-            for flag, enable in zip(self.config.slew_flags, self.config.enable):
-                self.log.info(f"Setting m1m3 slew flag {flag.name} to {enable}.")
-                await self.mtcs.set_m1m3_slew_controller_settings(flag, enable)
+        for flag, enable in zip(self.config.slew_flags, self.config.enable):
+            self.log.info(f"Setting m1m3 slew flag {flag.name} to {enable}.")
+            await self.mtcs.set_m1m3_slew_controller_settings(flag, enable)

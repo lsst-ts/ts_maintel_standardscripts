@@ -1,0 +1,1 @@
+In change_filter_lsstcam.py, add missing await to ``setup_instrument``.

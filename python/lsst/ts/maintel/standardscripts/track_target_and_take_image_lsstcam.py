@@ -29,6 +29,7 @@ from lsst.ts.observatory.control.utils import RotType
 from lsst.ts.standardscripts.base_track_target_and_take_image import (
     BaseTrackTargetAndTakeImage,
 )
+from lsst.ts.xml.enums.MTAOS import ClosedLoopState
 
 
 class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
@@ -64,7 +65,13 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
         self.tolerance_angle_filter_change = 1e-2
 
         self.mtcs = MTCS(self.domain, intended_usage=mtcs_usage, log=self.log)
-        self.lsstcam = LSSTCam(self.domain, intended_usage=lsstcam_usage, log=self.log)
+
+        self.lsstcam = LSSTCam(
+            self.domain,
+            intended_usage=lsstcam_usage,
+            log=self.log,
+            mtcs=self.mtcs,
+        )
 
         self.instrument_name = "LSSTCam"
 
@@ -184,6 +191,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
         """Take data."""
 
         for exptime in self.config.exp_times:
+            await self.wait_mtaos_idle()
             await self.lsstcam.take_object(
                 exptime=exptime,
                 group_id=self.group_id,
@@ -191,6 +199,34 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
                 program=self.config.program,
                 note=self.note,
             )
+
+    async def wait_mtaos_idle(self):
+        self.mtcs.rem.mtaos.evt_closedLoopState.flush()
+        mtaos_closed_loop_state = await self.mtcs.rem.mtaos.evt_closedLoopState.aget()
+        self.log.info(
+            f"MTAOS closed loop state: {ClosedLoopState(mtaos_closed_loop_state.state).name}."
+        )
+        while mtaos_closed_loop_state.state not in {
+            ClosedLoopState.IDLE,
+            ClosedLoopState.WAITING_IMAGE,
+            ClosedLoopState.PROCESSING,
+            ClosedLoopState.ERROR,
+        }:
+            try:
+                mtaos_closed_loop_state = (
+                    await self.mtcs.rem.mtaos.evt_closedLoopState.next(
+                        flush=False, timeout=self.mtcs.long_timeout
+                    )
+                )
+                self.log.info(
+                    f"MTAOS closed loop state: {ClosedLoopState(mtaos_closed_loop_state.state).name}."
+                )
+            except asyncio.TimeoutError:
+                self.log.warning(
+                    "No new closed loop state event. Continuing. "
+                    "Last known state: {ClosedLoopState(mtaos_closed_loop_state.state).name}."
+                )
+                return
 
     async def stop_tracking(self):
         """Execute stop tracking on MTCS."""
