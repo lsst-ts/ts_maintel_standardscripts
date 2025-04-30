@@ -74,10 +74,18 @@ class CrawlAz(salobj.BaseScript):
                 position:
                     description: Target azimuth (in degrees) to slew the dome to before crawling (optional).
                     type: number
+                    minimum: 0
                 velocity:
                     description: Crawling speed (in deg/second).
                     type: number
                     default: 0.5
+                ignore:
+                    description: >-
+                      CSCs from the group to ignore in status check. Name must
+                      match those in self.group.components, e.g.; hexapod_1.
+                    type: array
+                    items:
+                      type: string
             additionalProperties: false
         """
         return yaml.safe_load(schema_yaml)
@@ -94,6 +102,12 @@ class CrawlAz(salobj.BaseScript):
                 log=self.log,
             )
             await self.mtcs.start_task
+
+        all_csc_except_mtdome = self.mtcs.components_attr
+        all_csc_except_mtdome.remove("mtdome")
+        self.ignore = getattr(config, "ignore", all_csc_except_mtdome)
+        if self.ignore:
+            self.mtcs.disable_checks_for_components(components=self.ignore)
 
     def set_metadata(self, metadata) -> None:
         """Set script metadata.
