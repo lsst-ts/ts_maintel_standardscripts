@@ -26,3 +26,4 @@ from .enable_m1m3_balance_system import *
 from .enable_m1m3_slew_controller_flags import *
 from .lower_m1m3 import *
 from .raise_m1m3 import *
+from .set_thermal_loop_targets import *
