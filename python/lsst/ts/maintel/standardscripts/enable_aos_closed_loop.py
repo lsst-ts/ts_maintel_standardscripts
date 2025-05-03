@@ -21,8 +21,10 @@
 
 __all__ = ["EnableAOSClosedLoop"]
 
+import numpy as np
 import yaml
 from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.utils.enums import DOFName
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
 
 CMD_TIMEOUT = 100
@@ -60,17 +62,30 @@ class EnableAOSClosedLoop(BaseBlockScript):
 
     @classmethod
     def get_schema(cls):
-        schema_yaml = """
+        schema_yaml = f"""
             $schema: http://json-schema.org/draft-07/schema#
             $id: https://github.com/lsst-ts/ts_standardscripts/maintel/enable_aos_closed_loop.yaml
-            title: EnableAOSClosedLoop v1
+            title: EnableAOSClosedLoop v2
             description: Configuration for EnableAOSClosedLoop
             type: object
             properties:
-                mtaos_config:
-                    description: Configuration for MTAOS closed loop. Optional.
-                    type: object
-                    additionalProperties: true
+                used_dofs:
+                    oneOf:
+                    - type: array
+                      items:
+                        type: integer
+                        minimum: 0
+                        maximum: 49
+                    - type: array
+                      items:
+                        type: string
+                        enum: {[dof_name.name for dof_name in DOFName]}
+                    default: [1, 2, 3, 4, 5]
+                truncation_index:
+                    description: >-
+                        Truncation index to use for the estimating the state.
+                    type: integer
+                    default: 20
             additionalProperties: false
         """
         schema_dict = yaml.safe_load(schema_yaml)
@@ -85,8 +100,15 @@ class EnableAOSClosedLoop(BaseBlockScript):
         return schema_dict
 
     async def configure(self, config):
-        self.config = yaml.dump(getattr(config, "mtaos_config", {}))
         await self.configure_tcs()
+
+        self.truncation_index = config.truncation_index
+
+        selected_dofs = config.used_dofs
+        if isinstance(selected_dofs[0], str):
+            selected_dofs = [getattr(DOFName, dof) for dof in selected_dofs]
+        self.used_dofs = np.zeros(50)
+        self.used_dofs[selected_dofs] = 1
 
         await super().configure(config=config)
 
@@ -98,6 +120,17 @@ class EnableAOSClosedLoop(BaseBlockScript):
         in parallel to survey mode imaging.
         """
         await self.checkpoint("Enabling AOS Closed Loop")
+        config = {
+            "truncation_index": self.truncation_index,
+            "comp_dof_idx": {
+                "m2HexPos": [float(val) for val in self.used_dofs[:5]],
+                "camHexPos": [float(val) for val in self.used_dofs[5:10]],
+                "M1M3Bend": [float(val) for val in self.used_dofs[10:30]],
+                "M2Bend": [float(val) for val in self.used_dofs[30:]],
+            },
+        }
+        config_yaml = yaml.safe_dump(config)
+
         await self.mtcs.rem.mtaos.cmd_startClosedLoop.set_start(
-            config=self.config, timeout=CMD_TIMEOUT
+            config=config_yaml, timeout=CMD_TIMEOUT
         )
