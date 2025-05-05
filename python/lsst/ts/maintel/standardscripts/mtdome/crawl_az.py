@@ -74,10 +74,10 @@ class CrawlAz(salobj.BaseScript):
                 position:
                     description: Target azimuth (in degrees) to slew the dome to before crawling (optional).
                     type: number
-                    minimum: 0
                 velocity:
                     description: Crawling speed (in deg/second).
                     type: number
+                    minimum: 0
                     default: 0.5
                 ignore:
                     description: >-
