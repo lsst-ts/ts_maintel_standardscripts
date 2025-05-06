@@ -19,45 +19,35 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-__all__ = ["EnableAOSClosedLoop"]
+__all__ = ["SetThermalLoopTargets"]
 
 import yaml
-from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.observatory.control.maintel.mtcs import MTCS
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
-from lsst.ts.xml.enums.MTAOS import ClosedLoopState
 
 CMD_TIMEOUT = 100
-CLOSED_LOOP_STATE_TIMEOUT = 10
 
 
-class EnableAOSClosedLoop(BaseBlockScript):
-    """Enable AOS Closed Loop task to run in parallel to survey mode imaging.
+class SetThermalLoopTargets(BaseBlockScript):
+    """Set M1M3 setpoint targets for the thermal loop.
 
     Parameters
     ----------
     index : `int`
         Index of Script SAL component.
-
-    Notes
-    -----
-    **Checkpoints**
-
-    - "Enabling AOS Closed Loop": Enable AOS Closed Loop.
     """
 
     def __init__(self, index: int) -> None:
         super().__init__(
             index=index,
-            descr="Enable AOS Closed Loop.",
+            descr="Set M1M3 setpoint targets for the thermal loop.",
         )
         self.mtcs = None
 
     async def configure_tcs(self) -> None:
         if self.mtcs is None:
             self.log.debug("Creating MTCS.")
-            self.mtcs = MTCS(
-                domain=self.domain, log=self.log, intended_usage=MTCSUsages.Slew
-            )
+            self.mtcs = MTCS(domain=self.domain, log=self.log)
             await self.mtcs.start_task
         else:
             self.log.debug("MTCS already defined, skipping.")
@@ -67,15 +57,20 @@ class EnableAOSClosedLoop(BaseBlockScript):
         schema_yaml = """
             $schema: http://json-schema.org/draft-07/schema#
             $id: https://github.com/lsst-ts/ts_standardscripts/maintel/enable_aos_closed_loop.yaml
-            title: EnableAOSClosedLoop v1
-            description: Configuration for EnableAOSClosedLoop
+            title: SetThermalLoopTargets v1
+            description: Configuration for SetThermalLoopTargets
             type: object
             properties:
-                mtaos_config:
-                    description: Configuration for MTAOS closed loop. Optional.
-                    type: object
-                    additionalProperties: true
+                glycol_setpoint:
+                    description: Glycol setpoint temperature in Celsius.
+                    type: number
+                heater_setpoint:
+                    description: Heater setpoint temperature in Celsius.
+                    type: number
             additionalProperties: false
+            required:
+              - glycol_setpoint
+              - heater_setpoint
         """
         schema_dict = yaml.safe_load(schema_yaml)
 
@@ -89,8 +84,10 @@ class EnableAOSClosedLoop(BaseBlockScript):
         return schema_dict
 
     async def configure(self, config):
-        self.config = yaml.dump(getattr(config, "mtaos_config", {}))
         await self.configure_tcs()
+
+        self.glycol_setpoint = config.get("glycol_setpoint", None)
+        self.heater_setpoint = config.get("heater_setpoint", None)
 
         await super().configure(config=config)
 
@@ -98,29 +95,10 @@ class EnableAOSClosedLoop(BaseBlockScript):
         metadata.duration = CMD_TIMEOUT
 
     async def run_block(self):
-        """Enable AOS Closed Loop task to run
-        in parallel to survey mode imaging.
-        """
-        self.mtcs.rem.mtaos.evt_closedLoopState.flush()
-
-        await self.checkpoint("Enabling AOS Closed Loop")
-        await self.mtcs.rem.mtaos.cmd_startClosedLoop.set_start(
-            config=self.config, timeout=CMD_TIMEOUT
+        """Set M1M3 setpoint targets for the thermal loop."""
+        await self.checkpoint("Setting M1M3TS thermal setpoint targets")
+        await self.mtcs.rem.mtm1m3ts.cmd_applySetpoints.set_start(
+            glycolSetpoint=self.glycol_setpoint,
+            heaterSetpoint=self.heater_setpoint,
+            timeout=CMD_TIMEOUT,
         )
-
-        self.log.info("Waiting for closed loop to be ready.")
-        closed_loop_state = await self.mtcs.rem.mtaos.evt_closedLoopState.aget(
-            timeout=CLOSED_LOOP_STATE_TIMEOUT
-        )
-
-        while closed_loop_state.state != ClosedLoopState.WAITING_IMAGE:
-            if closed_loop_state.state == ClosedLoopState.ERROR:
-                raise RuntimeError("Closed loop in Error state.")
-            else:
-                self.log.info(
-                    f"closed loop state: {ClosedLoopState(closed_loop_state.state).name}."
-                )
-
-            closed_loop_state = await self.mtcs.rem.mtaos.evt_closedLoopState.next(
-                flush=False, timeout=CLOSED_LOOP_STATE_TIMEOUT
-            )
