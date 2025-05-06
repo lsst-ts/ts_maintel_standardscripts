@@ -33,8 +33,8 @@ class TestCrawlAz(standardscripts.BaseScriptTestCase, unittest.IsolatedAsyncioTe
     async def basic_make_script(self, index):
         self.script = CrawlAz(index=index)
 
-        self.script.mtdome = unittest.mock.AsyncMock()
-        self.script.mtdome.configure_mock(
+        self.script.mtcs = unittest.mock.AsyncMock()
+        self.script.mtcs.rem.mtdome.configure_mock(
             **{
                 "evt_summaryState.aget.side_effect": self.get_mtdome_summary_state,
                 "evt_summaryState.next.side_effect": self.get_mtdome_summary_state,
@@ -112,9 +112,90 @@ class TestCrawlAz(standardscripts.BaseScriptTestCase, unittest.IsolatedAsyncioTe
                     timeout=self.script.TIMEOUT_CMD,
                 ),
             ]
-            self.script.mtdome.cmd_crawlAz.set_start.assert_has_awaits(expected_calls)
+            self.script.mtcs.slew_dome_to.assert_not_awaited()
 
-            self.script.mtdome.cmd_stop.set_start.assert_awaited_with(
+            self.script.mtcs.rem.mtdome.cmd_crawlAz.set_start.assert_has_awaits(
+                expected_calls
+            )
+
+            self.script.mtcs.rem.mtdome.cmd_stop.set_start.assert_awaited_with(
+                subSystemIds=SubSystemId.AMCS,
+                timeout=self.script.TIMEOUT_CMD,
+            )
+
+    async def test_run_with_custom_position(self):
+        desired_position = 50
+        default_velocity = 0.5
+        async with self.make_script():
+            await self.configure_script(position=desired_position)
+
+            # Once the script starts it will run forever until stopped.
+            run_script_task = asyncio.create_task(self.run_script())
+
+            # wait a couple seconds than stop the script
+            await asyncio.sleep(5.0)
+
+            stop_data = self.script.cmd_stop.DataType()
+
+            await self.script.do_stop(stop_data)
+
+            await run_script_task
+
+            expected_calls = [
+                unittest.mock.call(
+                    velocity=default_velocity,
+                    timeout=self.script.TIMEOUT_CMD,
+                ),
+                unittest.mock.call(
+                    velocity=0.0,
+                    timeout=self.script.TIMEOUT_CMD,
+                ),
+            ]
+            self.script.mtcs.slew_dome_to.assert_awaited_with(az=desired_position)
+
+            self.script.mtcs.rem.mtdome.cmd_crawlAz.set_start.assert_has_awaits(
+                expected_calls
+            )
+
+            self.script.mtcs.rem.mtdome.cmd_stop.set_start.assert_awaited_with(
+                subSystemIds=SubSystemId.AMCS,
+                timeout=self.script.TIMEOUT_CMD,
+            )
+
+    async def test_run_with_custom_velocity(self):
+        desired_velocity = 0.1
+        async with self.make_script():
+            await self.configure_script(velocity=desired_velocity)
+
+            # Once the script starts it will run forever until stopped.
+            run_script_task = asyncio.create_task(self.run_script())
+
+            # wait a couple seconds than stop the script
+            await asyncio.sleep(5.0)
+
+            stop_data = self.script.cmd_stop.DataType()
+
+            await self.script.do_stop(stop_data)
+
+            await run_script_task
+
+            expected_calls = [
+                unittest.mock.call(
+                    velocity=desired_velocity,
+                    timeout=self.script.TIMEOUT_CMD,
+                ),
+                unittest.mock.call(
+                    velocity=0.0,
+                    timeout=self.script.TIMEOUT_CMD,
+                ),
+            ]
+            self.script.mtcs.slew_dome_to.assert_not_awaited()
+
+            self.script.mtcs.rem.mtdome.cmd_crawlAz.set_start.assert_has_awaits(
+                expected_calls
+            )
+
+            self.script.mtcs.rem.mtdome.cmd_stop.set_start.assert_awaited_with(
                 subSystemIds=SubSystemId.AMCS,
                 timeout=self.script.TIMEOUT_CMD,
             )

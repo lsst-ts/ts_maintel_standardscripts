@@ -27,6 +27,7 @@ import enum
 
 import yaml
 from lsst.ts import salobj
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.xml.enums.MTDome import SubSystemId
 
 
@@ -53,7 +54,7 @@ class CrawlAz(salobj.BaseScript):
     def __init__(self, index):
         super().__init__(index=index, descr="MTDome CrawlAz.")
 
-        self.mtdome = None
+        self.mtcs = None
         self.direction = Direction.ClockWise
 
     @classmethod
@@ -61,7 +62,7 @@ class CrawlAz(salobj.BaseScript):
         schema_yaml = """
             $schema: http://json-schema.org/draft-07/schema#
             $id: https://github.com/lsst-ts/ts_standardscripts/maintel/mtdome/crawl_az.py
-            title: CrawlAz v1
+            title: CrawlAz v2
             description: Configuration for CrawlAz
             type: object
             properties:
@@ -70,20 +71,43 @@ class CrawlAz(salobj.BaseScript):
                     type: string
                     default: ClockWise
                     enum: ["ClockWise", "CounterClockWise"]
+                position:
+                    description: Target azimuth (in degrees) to slew the dome to before crawling (optional).
+                    type: number
+                velocity:
+                    description: Crawling speed (in deg/second).
+                    type: number
+                    minimum: 0
+                    default: 0.5
+                ignore:
+                    description: >-
+                      CSCs from the group to ignore in status check. Name must
+                      match those in self.group.components, e.g.; hexapod_1.
+                    type: array
+                    items:
+                      type: string
             additionalProperties: false
         """
         return yaml.safe_load(schema_yaml)
 
     async def configure(self, config):
+        self.config = config
         self.direction = Direction[getattr(config, "direction", "ClockWise")]
-        if self.mtdome is None:
-            self.mtdome = salobj.Remote(
-                self.domain,
-                "MTDome",
-                include=["summaryState"],
-            )
+        self.position = getattr(config, "position", None)
 
-            await self.mtdome.start_task
+        if self.mtcs is None:
+            self.mtcs = MTCS(
+                domain=self.domain,
+                intended_usage=MTCSUsages.Slew | MTCSUsages.StateTransition,
+                log=self.log,
+            )
+            await self.mtcs.start_task
+
+        all_csc_except_mtdome = self.mtcs.components_attr
+        all_csc_except_mtdome.remove("mtdome")
+        self.ignore = getattr(config, "ignore", all_csc_except_mtdome)
+        if self.ignore:
+            self.mtcs.disable_checks_for_components(components=self.ignore)
 
     def set_metadata(self, metadata) -> None:
         """Set script metadata.
@@ -96,10 +120,7 @@ class CrawlAz(salobj.BaseScript):
         pass
 
     async def run(self):
-
-        self.log.info(f"Starting dome movement in the {self.direction!r} direction.")
-
-        summary_state = await self.mtdome.evt_summaryState.aget(
+        summary_state = await self.mtcs.rem.mtdome.evt_summaryState.aget(
             timeout=self.TIMEOUT_STD
         )
 
@@ -110,16 +131,26 @@ class CrawlAz(salobj.BaseScript):
                 "Dome must be in ENABLED, current state {current_state.name}."
             )
 
-        self.mtdome.evt_summaryState.flush()
+        if self.position:
+            self.log.info(f"Slewing dome to {self.position} deg.")
+            await self.mtcs.slew_dome_to(az=self.position)
 
-        await self.mtdome.cmd_crawlAz.set_start(
-            velocity=0.5 * (1 if self.direction == Direction.ClockWise else -1),
+        self.mtcs.rem.mtdome.evt_summaryState.flush()
+
+        self.log.info(
+            f"Starting dome movement in the {self.direction!r} direction"
+            f" with {self.config.velocity} deg/second velocity."
+        )
+
+        await self.mtcs.rem.mtdome.cmd_crawlAz.set_start(
+            velocity=self.config.velocity
+            * (1 if self.direction == Direction.ClockWise else -1),
             timeout=self.TIMEOUT_CMD,
         )
 
         while True:
             try:
-                summary_state = await self.mtdome.evt_summaryState.next(
+                summary_state = await self.mtcs.rem.mtdome.evt_summaryState.next(
                     timeout=self.TIMEOUT_STD, flush=False
                 )
 
@@ -136,7 +167,7 @@ class CrawlAz(salobj.BaseScript):
         self.log.info("Stopping dome.")
 
         try:
-            await self.mtdome.cmd_crawlAz.set_start(
+            await self.mtcs.rem.mtdome.cmd_crawlAz.set_start(
                 velocity=0,
                 timeout=self.TIMEOUT_CMD,
             )
@@ -147,7 +178,7 @@ class CrawlAz(salobj.BaseScript):
         await asyncio.sleep(self.TIMEOUT_STD)
 
         try:
-            await self.mtdome.cmd_stop.set_start(
+            await self.mtcs.rem.mtdome.cmd_stop.set_start(
                 subSystemIds=SubSystemId.AMCS,
                 timeout=self.TIMEOUT_CMD,
             )
