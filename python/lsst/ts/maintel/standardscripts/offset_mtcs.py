@@ -21,7 +21,7 @@
 
 __all__ = ["OffsetMTCS"]
 
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts.base_offset_tcs import BaseOffsetTCS
 
 
@@ -44,7 +44,9 @@ class OffsetMTCS(BaseOffsetTCS):
     async def configure(self, config):
 
         if self.mtcs is None:
-            self.mtcs = MTCS(domain=self.domain, log=self.log)
+            self.mtcs = MTCS(
+                domain=self.domain, log=self.log, intended_usage=MTCSUsages.Slew
+            )
             await self.mtcs.start_task
 
         await super().configure(config=config)
