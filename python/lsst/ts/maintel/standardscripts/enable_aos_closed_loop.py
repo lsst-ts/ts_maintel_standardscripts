@@ -23,11 +23,13 @@ __all__ = ["EnableAOSClosedLoop"]
 
 import numpy as np
 import yaml
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.utils.enums import DOFName
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
+from lsst.ts.xml.enums.MTAOS import ClosedLoopState
 
 CMD_TIMEOUT = 100
+CLOSED_LOOP_STATE_TIMEOUT = 10
 
 
 class EnableAOSClosedLoop(BaseBlockScript):
@@ -55,7 +57,9 @@ class EnableAOSClosedLoop(BaseBlockScript):
     async def configure_tcs(self) -> None:
         if self.mtcs is None:
             self.log.debug("Creating MTCS.")
-            self.mtcs = MTCS(domain=self.domain, log=self.log)
+            self.mtcs = MTCS(
+                domain=self.domain, log=self.log, intended_usage=MTCSUsages.Slew
+            )
             await self.mtcs.start_task
         else:
             self.log.debug("MTCS already defined, skipping.")
@@ -119,6 +123,8 @@ class EnableAOSClosedLoop(BaseBlockScript):
         """Enable AOS Closed Loop task to run
         in parallel to survey mode imaging.
         """
+        self.mtcs.rem.mtaos.evt_closedLoopState.flush()
+
         await self.checkpoint("Enabling AOS Closed Loop")
         config = {
             "truncation_index": self.truncation_index,
@@ -134,3 +140,20 @@ class EnableAOSClosedLoop(BaseBlockScript):
         await self.mtcs.rem.mtaos.cmd_startClosedLoop.set_start(
             config=config_yaml, timeout=CMD_TIMEOUT
         )
+
+        self.log.info("Waiting for closed loop to be ready.")
+        closed_loop_state = await self.mtcs.rem.mtaos.evt_closedLoopState.aget(
+            timeout=CLOSED_LOOP_STATE_TIMEOUT
+        )
+
+        while closed_loop_state.state != ClosedLoopState.WAITING_IMAGE:
+            if closed_loop_state.state == ClosedLoopState.ERROR:
+                raise RuntimeError("Closed loop in Error state.")
+            else:
+                self.log.info(
+                    f"closed loop state: {ClosedLoopState(closed_loop_state.state).name}."
+                )
+
+            closed_loop_state = await self.mtcs.rem.mtaos.evt_closedLoopState.next(
+                flush=False, timeout=CLOSED_LOOP_STATE_TIMEOUT
+            )

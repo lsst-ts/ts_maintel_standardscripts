@@ -20,6 +20,8 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 
+import asyncio
+import types
 import unittest
 
 import numpy as np
@@ -27,6 +29,7 @@ import yaml
 from lsst.ts import standardscripts
 from lsst.ts.maintel.standardscripts import EnableAOSClosedLoop
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.xml.enums.MTAOS import ClosedLoopState
 
 CMD_TIMEOUT = 100
 
@@ -44,8 +47,20 @@ class TestEnableAOSClosedLoop(
             log=self.script.log,
         )
         self.script.mtcs.rem.mtaos = unittest.mock.AsyncMock()
+        self.script.mtcs.rem.mtaos.configure_mock(
+            **{
+                "evt_closedLoopState.aget": self.get_loop_status,
+            }
+        )
 
+        self.closed_loop_state = types.SimpleNamespace(
+            state=ClosedLoopState.WAITING_IMAGE
+        )
         return (self.script,)
+
+    async def get_loop_status(self, *args, **kwags):
+        await asyncio.sleep(0.5)
+        return self.closed_loop_state
 
     async def test_configure(self) -> None:
         # Try configure with minimum set of parameters declared
