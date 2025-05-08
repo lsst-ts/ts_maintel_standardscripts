@@ -124,7 +124,7 @@ class WaitAOSClosedLoopReady(BaseBlockScript):
         while closed_loop_state != ClosedLoopState.WAITING_IMAGE:
 
             await self.checkpoint(
-                "Waiting for Closed Loop State to be WAITING_IMAGE, currently {closed_loop_state.name}"
+                f"Waiting for Closed Loop State to be WAITING_IMAGE, currently {closed_loop_state.name}"
             )
 
             if closed_loop_state == ClosedLoopState.ERROR:
