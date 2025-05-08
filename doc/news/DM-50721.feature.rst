@@ -1,0 +1,1 @@
+Added new ``WaitAOSClosedLoopReady`` script to wait until the AOS closed loop state is WAITING_IMAGE.
