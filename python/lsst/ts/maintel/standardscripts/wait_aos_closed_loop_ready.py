@@ -114,8 +114,10 @@ class WaitAOSClosedLoopReady(BaseBlockScript):
         self.mtcs.rem.mtaos.evt_closedLoopState.flush()
 
         closed_loop_state = ClosedLoopState(
-            await self.mtcs.rem.mtaos.evt_closedLoopState.aget(
-                timeout=CLOSED_LOOP_STATE_TIMEOUT
+            (
+                await self.mtcs.rem.mtaos.evt_closedLoopState.aget(
+                    timeout=CLOSED_LOOP_STATE_TIMEOUT
+                )
             ).state
         )
 
@@ -130,6 +132,10 @@ class WaitAOSClosedLoopReady(BaseBlockScript):
             else:
                 self.log.info(f"Closed loop state: {closed_loop_state.name}.")
 
-            closed_loop_state = await self.mtcs.rem.mtaos.evt_closedLoopState.next(
-                flush=False, timeout=CLOSED_LOOP_STATE_TIMEOUT
+            closed_loop_state = ClosedLoopState(
+                (
+                    await self.mtcs.rem.mtaos.evt_closedLoopState.next(
+                        flush=False, timeout=CLOSED_LOOP_STATE_TIMEOUT
+                    )
+                ).state
             )
