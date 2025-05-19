@@ -383,13 +383,14 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         ]
         self.log.info(f"Dome shutter state: {shutter_state.state}.")
 
-        if shutter_state.state == [MTDome.MotionState.OPEN, MTDome.MotionState.OPEN]:
+        expected_states = [MTDome.MotionState.OPEN, MTDome.MotionState.OPEN]
+        if shutter_state.state == expected_states:
             self.log.info("Dome shutters are already open.")
         else:
             self.log.warning(
-                "Dome shutters are NOT opened. "
                 "Please check and open the dome shutters manually if required. "
                 f"Current reported dome shutter state: {shutter_state.state}."
+                f"Expected state: {expected_states}."
             )
 
     async def run(self):
