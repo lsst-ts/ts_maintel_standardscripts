@@ -1,0 +1,419 @@
+# This file is part of ts_maintel_standardscripts
+#
+# Developed for the LSST Telescope and Site Systems.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+__all__ = ["EnsureOnSkyReadiness"]
+
+import asyncio  # Added for F821
+
+import yaml
+from lsst.ts import salobj
+from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.xml.enums import MTM1M3, MTDome
+
+
+class EnsureOnSkyReadiness(salobj.BaseScript):
+    """Ensure On Sky Readiness.
+
+    Parameters
+    ----------
+    index : int
+        Index of Script SAL component.
+    """
+
+    def __init__(self, index):
+        super().__init__(index=index, descr="Ensure On Sky Readiness.")
+
+        self.mtcs = None
+        self.lsstcam = None
+
+        self.tel_raise_m1m3_min_el = 70.0
+
+    async def configure_tcs(self) -> None:
+        """Initialize MTCS if not already initialized."""
+        if self.mtcs is None:
+            self.log.debug("Creating MTCS instance.")
+            self.mtcs = MTCS(
+                domain=self.domain,
+                log=self.log,
+                intended_usage=MTCSUsages.Slew | MTCSUsages.StateTransition,
+            )
+            await self.mtcs.start_task
+        else:
+            self.log.debug("MTCS already initialized.")
+
+    async def configure_camera(self) -> None:
+        """Initialize LSST Camera if not already initialized."""
+        if self.lsstcam is None:
+            self.log.debug("Creating LSST Camera instance.")
+            self.lsstcam = LSSTCam(
+                domain=self.domain,
+                intended_usage=LSSTCamUsages.StateTransition,
+                log=self.log,
+                mtcs=self.mtcs,
+            )
+            await self.lsstcam.start_task
+        else:
+            self.log.debug("LSST Camera already initialized.")
+
+    @classmethod
+    def get_schema(cls):
+        """Return the configuration schema for the script.
+
+        Returns
+        -------
+        dict
+            JSON schema as a dictionary.
+        """
+        schema_yaml = """
+        $schema: http://json-schema.org/draft-07/schema#
+        $id: https://github.com/lsst-ts/ts_maintel_standardscripts/EnsureTMAReadiness/v1
+        title: EnsureTMAReadiness v1
+        description: Configuration for EnsureTMAReadiness script.
+        type: object
+        properties:
+          slew_flags:
+            description: >-
+              List of M1M3 slew controller flags to change or "default" for a
+              predefined combination of flags.
+            oneOf:
+              - type: string
+                enum: ["default"]
+              - type: array
+                items:
+                  type: string
+                  enum: ["ACCELERATIONFORCES", "BALANCEFORCES", "VELOCITYFORCES", "BOOSTERVALVES"]
+          enable_flags:
+            description: >-
+              Corresponding booleans to enable or disable each slew flag. It will be
+              [True, True, True, False] if the slew_flag is set as "default".
+            type: array
+            items:
+              type: boolean
+        required:
+          - slew_flags
+        """
+        schema_dict = yaml.safe_load(schema_yaml)
+
+        base_schema_dict = super().get_schema()
+
+        for prop in base_schema_dict["properties"]:
+            schema_dict["properties"][prop] = base_schema_dict["properties"][prop]
+
+        return schema_dict
+
+    async def configure(self, config):
+        """Configure the script.
+
+        Parameters
+        ----------
+        config : types.SimpleNamespace
+            Configuration namespace.
+        """
+        self.config = config
+
+        if self.config.slew_flags == "default":
+            self.config.slew_flags, self.config.enable_flags = (
+                self._get_default_m1m3_slew_flags()
+            )
+        else:
+            if len(self.config.slew_flags) != len(self.config.enable_flags):
+                raise ValueError(
+                    "slew_flags and enable_flags arrays must have the same length."
+                )
+            # Convert flag names to enumeration values and
+            # store them back in config
+            self.config.slew_flags = self._convert_m1m3_slew_flag_names_to_enum(
+                self.config.slew_flags
+            )
+
+        await self.configure_tcs()
+        await self.configure_camera()
+
+        await super().configure(config=config)
+
+    def set_metadata(self, metadata):
+        metadata.duration = 300
+
+    def _get_default_m1m3_slew_flags(self):
+        """Return the default M1M3 slew flags and enables.
+
+        Returns
+        -------
+        tuple of (list of MTM1M3.SetSlewControllerSettings, list of bool)
+            Default M1M3 slew flags and enables.
+        """
+        default_flags = [
+            MTM1M3.SetSlewControllerSettings.ACCELERATIONFORCES,
+            MTM1M3.SetSlewControllerSettings.BALANCEFORCES,
+            MTM1M3.SetSlewControllerSettings.VELOCITYFORCES,
+            MTM1M3.SetSlewControllerSettings.BOOSTERVALVES,
+        ]
+        default_enables = [True, True, True, False]
+
+        return default_flags, default_enables
+
+    @staticmethod
+    def _convert_m1m3_slew_flag_names_to_enum(flag_names):
+        """Convert flag names (strings) to MTM1M3.SetSlewControllerSettings
+        enum values.
+
+        Parameters
+        ----------
+        flag_names : list of str
+            List of flag names as strings.
+
+        Returns
+        -------
+        list of MTM1M3.SetSlewControllerSettings
+            List of enumeration values corresponding to the flag names.
+        """
+        return [MTM1M3.SetSlewControllerSettings[name] for name in flag_names]
+
+    async def _is_mtmount_homed(self) -> bool:
+        """
+        Check if both axes of the MTMount are homed.
+
+        This method checks the `evt_azimuthHomed` and `evt_elevationHomed`
+        events to determine if both the azimuth and elevation axes are homed.
+
+        Returns
+        -------
+        bool
+            True if both axes are homed, False otherwise.
+
+        Logs
+        ----
+        Logs the current state of the azimuth and elevation axes.
+        """
+        try:
+            az_homed = (
+                await self.mtcs.rem.mtmount.evt_azimuthHomed.aget(
+                    timeout=self.mtcs.fast_timeout
+                )
+            ).homed
+            el_homed = (
+                await self.mtcs.rem.mtmount.evt_elevationHomed.aget(
+                    timeout=self.mtcs.fast_timeout
+                )
+            ).homed
+
+            self.log.debug(f"Azimuth homed: {az_homed}, Elevation homed: {el_homed}")
+            return az_homed and el_homed
+        except asyncio.TimeoutError:
+            self.log.warning("Timeout while checking MTMount homed state.")
+            return False
+
+    async def ensure_m1m3_raised(self) -> None:
+        """
+        Ensure M1M3 is safely raised if needed.
+
+        This method checks that the telescope elevation is at or above
+        `self.tel_raise_m1m3_min_el` before allowing MTM1M3 to be raised.
+        It then checks the current M1M3 detailed state:
+
+        - If in FAULT, raises an error.
+        - If in ACTIVE or ACTIVEENGINEERING, does nothing (already raised).
+        - If in PARKED or PARKEDENGINEERING, issues the raise command.
+        - If in any other state, raises an error.
+
+        Raises
+        ------
+        RuntimeError
+            If the elevation is not safe, or if M1M3 is in a FAULT or
+            unexpected state.
+        """
+        elevation = (
+            await self.mtcs.rem.mtmount.tel_elevation.aget(
+                timeout=self.mtcs.fast_timeout
+            )
+        ).actualPosition
+
+        if elevation < self.tel_raise_m1m3_min_el:
+            raise RuntimeError(
+                f"Elevation {elevation:.2f}° is below minimum {self.tel_raise_m1m3_min_el:.2f} deg. "
+                f"Cannot raise M1M3. Move telescope manually to a safe position and try again."
+            )
+        # Get M1M3 detailed state
+        detailed_state = MTM1M3.DetailedState(
+            (
+                await self.mtcs.rem.mtm1m3.evt_detailedState.aget(
+                    timeout=self.mtcs.fast_timeout
+                )
+            ).detailedState
+        )
+        fault_state = {MTM1M3.DetailedState.FAULT}
+        active_state = {
+            MTM1M3.DetailedState.ACTIVE,
+            MTM1M3.DetailedState.ACTIVEENGINEERING,
+        }
+        parked_state = {
+            MTM1M3.DetailedState.PARKED,
+            MTM1M3.DetailedState.PARKEDENGINEERING,
+        }
+
+        # Check M1M3 detailed state
+        self.log.info(f"M1M3 detailed state: {detailed_state.name}.")
+        if detailed_state in fault_state:
+            raise RuntimeError(
+                f"M1M3 in FAULT state ({detailed_state.name}). Cannot raise. "
+                f"Please clear faults and try again."
+            )
+        elif detailed_state in active_state:
+            self.log.info(f"M1M3 already {detailed_state.name}. Nothing to do.")
+        elif detailed_state in parked_state:
+            self.log.info(
+                f"TMA elevation safe: {elevation:.2f} deg and M1M3 is "
+                f"parked: ({detailed_state.name}). Raising mirror."
+            )
+            await self.mtcs.raise_m1m3()
+        else:
+            raise RuntimeError(
+                f"M1M3 in unexpected state ({detailed_state.name}). Aborting."
+                f"Please check the system and try again."
+            )
+
+    async def ensure_mtmount_homed(self) -> None:
+        """
+        Ensure both axes of the MTMount are homed.
+
+        This method checks if both the azimuth and elevation axes of the
+        MTMount are homed. If either axis is not homed, it issues the
+        `cmd_homeBothAxes` command to home both axes.
+
+        Raises
+        ------
+        RuntimeError
+            If the homing command fails or times out.
+        """
+        if not await self._is_mtmount_homed():
+            self.log.info("Homing both axes of the telescope.")
+            await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
+                timeout=self.mtcs.long_timeout
+            )
+        else:
+            self.log.info("Telescope is already homed. Nothing to do.")
+
+    async def ensure_m1m3_balance_system_enabled(self):
+        """Ensure the M1M3 force balance system is enabled.
+
+        This method calls MTCS.enable_m1m3_balance_system(), which:
+        - Checks the current state of the M1M3 force balance system
+          (hardpoint corrections).
+        - If the system is not enabled, sends the command to enable
+          hardpoint corrections.
+        - Waits for the force balance system to reach the enabled state,
+          monitoring status.
+        - Handles command timeouts and logs progress.
+        - Raises RuntimeError if the system fails to reach the enabled state.
+
+        If the force balance system is already enabled, no action is taken.
+        """
+        self.log.info("Ensuring M1M3 force balance system is enabled.")
+        await self.mtcs.enable_m1m3_balance_system()
+
+    async def ensure_m1m3_slew_controller_flags_enabled(self):
+        """Ensure M1M3 slew controller flags are enabled."""
+        self.log.info("Ensuring M1M3 slew controller flags are correctly enabled.")
+        for flag, enable in zip(self.config.slew_flags, self.config.enable_flags):
+            self.log.info(f"Setting m1m3 slew flag {flag.name} to {enable}.")
+            await self.mtcs.set_m1m3_slew_controller_settings(flag, enable)
+
+    async def ensure_m1m3_cover_opened(self):
+        """Ensure the mirror covers are opened.
+
+        This method checks the current state of the mirror covers and
+        opens them if they are closed. It also checks the telescope
+        elevation to ensure it is safe to open the covers.
+
+        High-level overview of checks and actions performed:
+        - Checks the current state of the mirror covers (deployed, retracted,
+          or other).
+        - If covers are already open (retracted), nothing is done.
+        - If covers are deployed, ensures the telescope is at a safe elevation
+          (>= 70 degrees). If not, slews the telescope to that elevation,
+          maintaining the current azimuth.
+        - Stops telescope tracking before opening the covers.
+        - Issues the open command and waits for the operation to complete.
+        - Handles command errors, verifies the final state of the covers and
+          locks, and raises RuntimeError if the system is in a FAULT state or
+          if the operation fails.
+        """
+        self.log.info("Ensuring mirror covers are opened.")
+        await self.mtcs.open_m1_cover()
+
+    async def ensure_dome_shutter_opened(self):
+        """Check and report the status of the dome shutters.
+
+        This method checks the current state of the dome shutters and logs a
+        warning if the dome shutters are not open. It does not attempt to open
+        the dome shutters, but reports the current status and asks the user to
+        check and open the dome shutters manually if needed.
+
+        Logs
+        ----
+        Logs the current state of the dome shutters.
+        """
+        self.log.info("Checking dome shutter state.")
+
+        self.mtcs.rem.mtdome.evt_shutterMotion.flush()
+        shutter_state = await self.mtcs.rem.mtdome.evt_shutterMotion.aget(
+            timeout=self.mtcs.fast_timeout
+        )
+        shutter_state.state = [
+            MTDome.MotionState(value) for value in shutter_state.state
+        ]
+        self.log.info(f"Dome shutter state: {shutter_state.state}.")
+
+        if shutter_state.state == [MTDome.MotionState.OPEN, MTDome.MotionState.OPEN]:
+            self.log.info("Dome shutters are already open.")
+        else:
+            self.log.warning(
+                "Dome shutters are NOT opened. "
+                "Please check and open the dome shutters manually if required. "
+                f"Current reported dome shutter state: {shutter_state.state}."
+            )
+
+    async def run(self):
+        """Run the script to ensure on-sky readiness."""
+
+        await self.mtcs.assert_all_enabled(
+            message="All MTCS components need to be enabled before going on sky."
+        )
+
+        await self.lsstcam.assert_all_enabled(
+            message="All MTCamera components need to be enabled before going on sky."
+        )
+
+        await self.checkpoint("Ensure MTM1M3 is raised.")
+        await self.ensure_m1m3_raised()
+
+        await self.checkpoint("Ensure MTMount is homed.")
+        await self.ensure_mtmount_homed()
+
+        await self.checkpoint("Ensure M1M3 Force Balance System is enabled.")
+        await self.ensure_m1m3_balance_system_enabled()
+
+        await self.checkpoint("Ensure M1M3 Mirror Covers are opened.")
+        await self.ensure_m1m3_cover_opened()
+
+        await self.checkpoint("Ensure MTDome Shutters are opened.")
+        await self.ensure_dome_shutter_opened()
