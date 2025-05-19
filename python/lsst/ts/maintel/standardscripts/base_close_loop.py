@@ -223,6 +223,15 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                     Truncation index to use for the estimating the state.
                 type: integer
                 default: 20
+              zn_selected:
+                description: >-
+                    Zernike coefficients to use.
+                type: array
+                items:
+                  type: integer
+                  minimum: 0
+                  maximum: 28
+                default: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 21, 22, 27, 28]
               apply_corrections:
                 description: >-
                     Apply OFC corrections after each iteration.
@@ -296,6 +305,7 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
 
         self.gain_sequence = config.gain_sequence
         self.truncation_index = config.truncation_index
+        self.zn_selected = config.zn_selected
 
         if hasattr(config, "ignore"):
             self.mtcs.disable_checks_for_components(components=config.ignore)
@@ -484,6 +494,7 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
             "filter_name": filter,
             "rotation_angle": rotation_angle,
             "truncation_index": self.truncation_index,
+            "zn_selected": self.zn_selected,
             "comp_dof_idx": {
                 "m2HexPos": [float(val) for val in self.used_dofs[:5]],
                 "camHexPos": [float(val) for val in self.used_dofs[5:10]],
