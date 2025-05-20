@@ -27,7 +27,7 @@ import yaml
 from lsst.ts import salobj
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
-from lsst.ts.xml.enums import MTM1M3, MTDome
+from lsst.ts.xml.enums import MTAOS, MTM1M3, MTDome
 
 
 class EnsureOnSkyReadiness(salobj.BaseScript):
@@ -222,7 +222,56 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             self.log.warning("Timeout while checking MTMount homed state.")
             return False
 
-    async def ensure_m1m3_raised(self) -> None:
+    async def assert_dome_shutter_opened(self):
+        """Check and report the status of the dome shutters.
+
+        This method checks the current state of the dome shutters and logs a
+        warning if the dome shutters are not open. It does not attempt to open
+        the dome shutters, but reports the current status and asks the user to
+        check and open the dome shutters manually if needed.
+
+        Logs
+        ----
+        Logs the current state of the dome shutters.
+        """
+        self.log.info("Assert that dome shutters are opened.")
+
+        self.mtcs.rem.mtdome.evt_shutterMotion.flush()
+        shutter_state = await self.mtcs.rem.mtdome.evt_shutterMotion.aget(
+            timeout=self.mtcs.fast_timeout
+        )
+        shutter_state.state = [
+            MTDome.MotionState(value) for value in shutter_state.state
+        ]
+        self.log.info(f"Dome shutter state: {shutter_state.state}.")
+
+        expected_states = [MTDome.MotionState.OPEN, MTDome.MotionState.OPEN]
+        if shutter_state.state == expected_states:
+            self.log.info("Dome shutters are already open.")
+        else:
+            self.log.error(
+                "Please check and open the dome shutters if they are not opened yet. "
+                f"Reported dome shutter state: {shutter_state.state}."
+                f"Expected state: {expected_states}."
+            )
+
+    async def ensure_m2_balance_system_enabled(self):
+        """Ensure the M2 force balance system is enabled.
+
+        This method calls MTCS.enable_m2_balance_system(), which:
+        - Checks the current status of the M2 force balance system.
+        - If the system is not enabled, sends the command to enable it.
+        - Waits for the system status to update to enabled.
+        - Logs progress and status.
+        - If the system is already enabled, no action is taken.
+
+        This ensures that the M2 force balance system is ready for
+        on-sky operations.
+        """
+        self.log.info("Ensuring M2 force balance system is enabled.")
+        await self.mtcs.enable_m2_balance_system()
+
+    async def ensure_m1m3_raised_at_safe_elevation(self) -> None:
         """
         Ensure M1M3 is safely raised if needed.
 
@@ -360,37 +409,75 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         self.log.info("Ensuring mirror covers are opened.")
         await self.mtcs.open_m1_cover()
 
-    async def ensure_dome_shutter_opened(self):
-        """Check and report the status of the dome shutters.
+    async def ensure_hexapod_compensation_mode_enabled(self):
+        """Ensure compensation mode is enabled for both hexapods.
 
-        This method checks the current state of the dome shutters and logs a
-        warning if the dome shutters are not open. It does not attempt to open
-        the dome shutters, but reports the current status and asks the user to
-        check and open the dome shutters manually if needed.
+        This method calls MTCS.enable_compensation_mode() for both
+        CameraHexapod (mthexapod_1) and M2Hexapod (mthexapod_2), enabling
+        compensation mode if not already enabled. If compensation mode is
+        already enabled for a hexapod, no action is taken.
+        """
+        self.log.info("Ensuring compensation mode is enabled for both hexapods.")
+        await self.mtcs.enable_compensation_mode("mthexapod_1")
+        await self.mtcs.enable_compensation_mode("mthexapod_2")
+
+    async def ensure_ccw_following_enabled(self):
+        """Ensure Camera Cable Wrap (CCW) following is enabled.
+
+        This method calls MTCS.enable_ccw_following(), which enables the
+        camera cable wrap to follow the rotator. If already enabled, no
+        action is taken.
+        """
+        self.log.info("Ensuring Camera Cable Wrap following is enabled.")
+        await self.mtcs.enable_ccw_following()
+
+    async def ensure_dome_following_enabled(self):
+        """Ensure dome following mode is enabled.
+
+        This method calls MTCS.enable_dome_following(), which enables dome
+        trajectory following mode if the check passes. If already enabled,
+        no action is taken.
+        """
+        self.log.info("Ensuring dome following mode is enabled.")
+        await self.mtcs.enable_dome_following()
+
+    async def ensure_aos_closed_loop_enabled(self):
+        """Check and report the status of the AOS Closed Loop.
+
+        This method checks the current state of the AOS closed loop and logs
+        its status. If it is not in WAITING_IMAGE, a warning is logged.
+        If it is in ERROR, an error is logged. This does not attempt to
+        enable the closed loop, but informs the user of the current state.
+
 
         Logs
         ----
-        Logs the current state of the dome shutters.
+        Logs the current state of the AOS closed loop.
         """
-        self.log.info("Checking dome shutter state.")
+        self.log.info("Checking AOS Closed Loop state.")
 
-        self.mtcs.rem.mtdome.evt_shutterMotion.flush()
-        shutter_state = await self.mtcs.rem.mtdome.evt_shutterMotion.aget(
+        self.mtcs.rem.mtaos.evt_closedLoopState.flush()
+        closed_loop_state_evt = await self.mtcs.rem.mtaos.evt_closedLoopState.aget(
             timeout=self.mtcs.fast_timeout
         )
-        shutter_state.state = [
-            MTDome.MotionState(value) for value in shutter_state.state
-        ]
-        self.log.info(f"Dome shutter state: {shutter_state.state}.")
+        state = MTAOS.ClosedLoopState(closed_loop_state_evt.state)
+        self.log.info(f"AOS Closed Loop state: {state.name}.")
 
-        expected_states = [MTDome.MotionState.OPEN, MTDome.MotionState.OPEN]
-        if shutter_state.state == expected_states:
-            self.log.info("Dome shutters are already open.")
+        if state == MTAOS.ClosedLoopState.WAITING_IMAGE:
+            self.log.info("AOS Closed Loop is enabled and waiting for image.")
+        elif state == MTAOS.ClosedLoopState.ERROR:
+            self.log.error("AOS Closed Loop is in ERROR state. Please investigate.")
+        elif state == MTAOS.ClosedLoopState.IDLE:
+            self.log.warning(
+                "AOS Closed Loop is IDLE (not started). "
+                "Run enable_aos_closed_loop.py script to enable it."
+            )
         else:
             self.log.warning(
-                "Please check and open the dome shutters manually if required. "
-                f"Current reported dome shutter state: {shutter_state.state}."
-                f"Expected state: {expected_states}."
+                f"AOS Closed Loop is not in WAITING_IMAGE state. "
+                f"Current state: {state.name}. "
+                "If you expect the closed loop to be enabled, "
+                "run enable_aos_closed_loop.py script."
             )
 
     async def run(self):
@@ -404,8 +491,14 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             message="All MTCamera components need to be enabled before going on sky."
         )
 
-        await self.checkpoint("Ensure MTM1M3 is raised.")
-        await self.ensure_m1m3_raised()
+        await self.checkpoint("Check if MTDome Shutters are opened.")
+        await self.assert_dome_shutter_opened()
+
+        await self.checkpoint("Ensure M2 Force Balance System is enabled.")
+        await self.ensure_m2_balance_system_enabled()
+
+        await self.checkpoint("Ensure MTM1M3 is raised at safe elevation.")
+        await self.ensure_m1m3_raised_at_safe_elevation()
 
         await self.checkpoint("Ensure MTMount is homed.")
         await self.ensure_mtmount_homed()
@@ -413,8 +506,20 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         await self.checkpoint("Ensure M1M3 Force Balance System is enabled.")
         await self.ensure_m1m3_balance_system_enabled()
 
+        await self.checkpoint("Ensure M1M3 Slew Controller Flags are enabled.")
+        await self.ensure_m1m3_slew_controller_flags_enabled()
+
         await self.checkpoint("Ensure M1M3 Mirror Covers are opened.")
         await self.ensure_m1m3_cover_opened()
 
-        await self.checkpoint("Ensure MTDome Shutters are opened.")
-        await self.ensure_dome_shutter_opened()
+        await self.checkpoint("Ensure Camera Cable Wrap Following is enabled.")
+        await self.ensure_ccw_following_enabled()
+
+        await self.checkpoint("Ensure Hexapods Compensation Mode are enabled.")
+        await self.ensure_hexapod_compensation_mode_enabled()
+
+        await self.checkpoint("Ensure Dome Following is enabled.")
+        await self.ensure_dome_following_enabled()
+
+        await self.checkpoint("Ensure AOS Closed Loop is enabled.")
+        await self.ensure_aos_closed_loop_enabled()
