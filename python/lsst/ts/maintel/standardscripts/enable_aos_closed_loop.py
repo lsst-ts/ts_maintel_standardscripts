@@ -90,6 +90,16 @@ class EnableAOSClosedLoop(BaseBlockScript):
                         Truncation index to use for the estimating the state.
                     type: integer
                     default: 20
+                zn_selected:
+                    description: >-
+                        Zernike coefficients to use.
+                    type: array
+                    default: []
+                    items:
+                        type: integer
+                        minimum: 0
+                        maximum: 28
+                    default: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 21, 22, 27, 28]
             additionalProperties: false
         """
         schema_dict = yaml.safe_load(schema_yaml)
@@ -107,6 +117,7 @@ class EnableAOSClosedLoop(BaseBlockScript):
         await self.configure_tcs()
 
         self.truncation_index = config.truncation_index
+        self.zn_selected = config.zn_selected
 
         selected_dofs = config.used_dofs
         if isinstance(selected_dofs[0], str):
@@ -127,6 +138,7 @@ class EnableAOSClosedLoop(BaseBlockScript):
 
         await self.checkpoint("Enabling AOS Closed Loop")
         config = {
+            "zn_selected": self.zn_selected,
             "truncation_index": self.truncation_index,
             "comp_dof_idx": {
                 "m2HexPos": [float(val) for val in self.used_dofs[:5]],

@@ -83,6 +83,25 @@ class TestEnableAOSClosedLoop(
             config = {
                 "used_dofs": [0, 1, 2, 3, 4],
                 "truncation_index": 5,
+                "zn_selected": [
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10,
+                    11,
+                    12,
+                    13,
+                    14,
+                    15,
+                    20,
+                    21,
+                    22,
+                    27,
+                    28,
+                ],
             }
             await self.configure_script(**config)
 
@@ -99,6 +118,7 @@ class TestEnableAOSClosedLoop(
                     "M1M3Bend": [float(val) for val in configured_dofs[10:30]],
                     "M2Bend": [float(val) for val in configured_dofs[30:]],
                 },
+                "zn_selected": config["zn_selected"],
             }
             self.script.mtcs.rem.mtaos.cmd_startClosedLoop.set_start.assert_awaited_once()
             self.script.mtcs.rem.mtaos.cmd_startClosedLoop.set_start.assert_awaited_with(
