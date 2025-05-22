@@ -31,11 +31,11 @@ from lsst.ts.xml.enums import MTAOS, MTM1M3, MTDome
 
 
 class EnsureOnSkyReadiness(salobj.BaseScript):
-    """Ensure On Sky Readiness.
+    """Ensure On Sky Readiness
 
     Parameters
     ----------
-    index : int
+    index : `int`
         Index of Script SAL component.
     """
 
@@ -76,13 +76,6 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
 
     @classmethod
     def get_schema(cls):
-        """Return the configuration schema for the script.
-
-        Returns
-        -------
-        dict
-            JSON schema as a dictionary.
-        """
         schema_yaml = """
         $schema: http://json-schema.org/draft-07/schema#
         $id: https://github.com/lsst-ts/ts_maintel_standardscripts/EnsureTMAReadiness/v1
@@ -222,7 +215,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             self.log.warning("Timeout while checking MTMount homed state.")
             return False
 
-    async def assert_dome_shutter_opened(self):
+    async def assert_dome_shutter_opened(self) -> tuple[bool, str]:
         """Check and report the status of the dome shutters.
 
         This method checks the current state of the dome shutters and logs a
@@ -248,12 +241,16 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         expected_states = [MTDome.MotionState.OPEN, MTDome.MotionState.OPEN]
         if shutter_state.state == expected_states:
             self.log.info("Dome shutters are already open.")
+            return True, ""
         else:
-            self.log.error(
-                "Please check and open the dome shutters if they are not opened yet. "
-                f"Reported dome shutter state: {shutter_state.state}."
-                f"Expected state: {expected_states}."
+            msg = (
+                "Dome shutters are not open.\n"
+                f"Reported state: {shutter_state.state}.\n"
+                f"Expected state: {expected_states}.\n"
+                "Please check and open the dome shutters if they are not opened yet."
             )
+            self.log.error(msg)
+            return False, msg
 
     async def ensure_m2_balance_system_enabled(self):
         """Ensure the M2 force balance system is enabled.
@@ -441,7 +438,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         self.log.info("Ensuring dome following mode is enabled.")
         await self.mtcs.enable_dome_following()
 
-    async def ensure_aos_closed_loop_enabled(self):
+    async def assert_aos_closed_loop_enabled(self) -> tuple[bool, str]:
         """Check and report the status of the AOS Closed Loop.
 
         This method checks the current state of the AOS closed loop and logs
@@ -465,20 +462,27 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
 
         if state == MTAOS.ClosedLoopState.WAITING_IMAGE:
             self.log.info("AOS Closed Loop is enabled and waiting for image.")
+            return True, ""
         elif state == MTAOS.ClosedLoopState.ERROR:
-            self.log.error("AOS Closed Loop is in ERROR state. Please investigate.")
+            msg = "AOS Closed Loop is in ERROR state. Please investigate."
+            self.log.error(msg)
+            return False, msg
         elif state == MTAOS.ClosedLoopState.IDLE:
-            self.log.warning(
-                "AOS Closed Loop is IDLE (not started). "
+            msg = (
+                "AOS Closed Loop is IDLE (not started).\n"
                 "Run enable_aos_closed_loop.py script to enable it."
             )
+            self.log.warning(msg)
+            return False, msg
         else:
-            self.log.warning(
-                f"AOS Closed Loop is not in WAITING_IMAGE state. "
-                f"Current state: {state.name}. "
+            msg = (
+                f"AOS Closed Loop is not in WAITING_IMAGE state.\n "
+                f"Current state: {state.name}.\n"
                 "If you expect the closed loop to be enabled, "
                 "run enable_aos_closed_loop.py script."
             )
+            self.log.warning(msg)
+            return False, msg
 
     async def run(self):
         """Run the script to ensure on-sky readiness."""
@@ -491,8 +495,8 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             message="All MTCamera components need to be enabled before going on sky."
         )
 
-        await self.checkpoint("Check if MTDome Shutters are opened.")
-        await self.assert_dome_shutter_opened()
+        await self.checkpoint("Assert that MTDome Shutters are opened.")
+        dome_ok, dome_msg = await self.assert_dome_shutter_opened()
 
         await self.checkpoint("Ensure M2 Force Balance System is enabled.")
         await self.ensure_m2_balance_system_enabled()
@@ -521,5 +525,17 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         await self.checkpoint("Ensure Dome Following is enabled.")
         await self.ensure_dome_following_enabled()
 
-        await self.checkpoint("Ensure AOS Closed Loop is enabled.")
-        await self.ensure_aos_closed_loop_enabled()
+        await self.checkpoint("Assert that AOS Closed Loop is enabled.")
+        aos_ok, aos_msg = await self.assert_aos_closed_loop_enabled()
+
+        # Highlight non-critical warnings
+        if not dome_ok:
+            self.log.warning(dome_msg)
+        if not aos_ok:
+            self.log.warning(aos_msg)
+        if not dome_ok or not aos_ok:
+            self.log.warning(
+                "Please check the warnings above and take necessary actions."
+            )
+        else:
+            self.log.info("All checks passed. Ready for on-sky operations.")
