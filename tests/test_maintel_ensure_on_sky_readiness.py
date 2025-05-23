@@ -19,6 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+import asyncio
 import unittest
 from unittest import mock
 
@@ -122,10 +123,14 @@ class TestEnsureOnSkyReadiness(
             assert self.script.config.enable_flags == enable_flags
 
     async def test_run_ready_for_on_sky(self):
+        """
+        Test the script when all components are already ready for
+        on-sky operations.
+        """
+
         async with self.make_script():
             await self.configure_script(slew_flags="default")
             await self.run_script()
-
             # Assert all main methods were called exactly once
             self.script.mtcs.assert_all_enabled.assert_awaited_once()
             self.script.lsstcam.assert_all_enabled.assert_awaited_once()
@@ -272,7 +277,7 @@ class TestEnsureOnSkyReadiness(
             # Subtests for different scenarios
             with self.subTest("Low elevation"):
                 await run_with_elevation_and_state(
-                    elevation=50.0, detailed_state=MTM1M3.DetailedState.PARKED
+                    elevation=25.0, detailed_state=MTM1M3.DetailedState.PARKED
                 )
 
             with self.subTest("Fault state"):
@@ -296,3 +301,109 @@ class TestEnsureOnSkyReadiness(
                         elevation=75.0, detailed_state=MTM1M3.DetailedState.STANDBY
                     )
                 assert "M1M3 in unexpected state (STANDBY)" in str(cm.exception)
+
+    async def test_ensure_mtmount_homed(self):
+        async with self.make_script():
+            # Helper to patch homed states
+            async def run_with_homed_states(az_homed, el_homed, timeout=False):
+                if timeout:
+                    self.script.mtcs.rem.mtmount.evt_azimuthHomed.aget = mock.AsyncMock(
+                        side_effect=asyncio.TimeoutError
+                    )
+                    self.script.mtcs.rem.mtmount.evt_elevationHomed.aget = (
+                        mock.AsyncMock(side_effect=asyncio.TimeoutError)
+                    )
+                else:
+                    self.script.mtcs.rem.mtmount.evt_azimuthHomed.aget = mock.AsyncMock(
+                        return_value=mock.Mock(homed=az_homed)
+                    )
+                    self.script.mtcs.rem.mtmount.evt_elevationHomed.aget = (
+                        mock.AsyncMock(return_value=mock.Mock(homed=el_homed))
+                    )
+
+                with mock.patch.object(
+                    self.script.mtcs.rem.mtmount.cmd_homeBothAxes, "start"
+                ) as mock_home:
+                    if not az_homed or not el_homed:
+                        await self.script.ensure_mtmount_homed()
+                        mock_home.assert_awaited_once()
+                    elif timeout:
+                        await self.script.ensure_mtmount_homed()
+                        mock_home.assert_not_called()
+
+            # Subtest for one axis not homed
+            with self.subTest("One axis not homed"):
+                await run_with_homed_states(az_homed=True, el_homed=False)
+
+            # Subtest for timeout
+            with self.subTest("Timeout"):
+                await run_with_homed_states(
+                    az_homed=False, el_homed=False, timeout=True
+                )
+
+    async def test_ensure_m1m3_balance_system_enabled_failure(self):
+        async with self.make_script():
+            self.script.mtcs.enable_m1m3_balance_system = mock.AsyncMock(
+                side_effect=RuntimeError("Failed to enable M1M3 balance system.")
+            )
+            with self.assertRaises(
+                RuntimeError, msg="Failed to enable M1M3 balance system."
+            ):
+                await self.script.ensure_m1m3_balance_system_enabled()
+
+    async def test_ensure_m1m3_slew_controller_flags_enabled_failure(self):
+        async with self.make_script():
+            # Configure the script with valid slew flags and enable flags
+            await self.configure_script(
+                slew_flags=["ACCELERATIONFORCES", "BALANCEFORCES"],
+                enable_flags=[True, True],
+            )
+
+            # Mock the MTCS method to raise an exception
+            self.script.mtcs.set_m1m3_slew_controller_settings = mock.AsyncMock(
+                side_effect=RuntimeError("Failed to set M1M3 slew controller flags.")
+            )
+
+            # Assert that the RuntimeError is raised
+            with self.assertRaises(
+                RuntimeError, msg="Failed to set M1M3 slew controller flags."
+            ):
+                await self.script.ensure_m1m3_slew_controller_flags_enabled()
+
+    async def test_ensure_m1m3_cover_opened_failure(self):
+        async with self.make_script():
+            self.script.mtcs.open_m1_cover = mock.AsyncMock(
+                side_effect=RuntimeError("Failed to open M1M3 mirror covers.")
+            )
+            with self.assertRaises(
+                RuntimeError, msg="Failed to open M1M3 mirror covers."
+            ):
+                await self.script.ensure_m1m3_cover_opened()
+
+    async def test_ensure_ccw_following_enabled_failure(self):
+        async with self.make_script():
+            self.script.mtcs.enable_ccw_following = mock.AsyncMock(
+                side_effect=RuntimeError("Failed to enable CCW following.")
+            )
+            with self.assertRaises(RuntimeError, msg="Failed to enable CCW following."):
+                await self.script.ensure_ccw_following_enabled()
+
+    async def test_ensure_hexapod_compensation_mode_enabled_failure(self):
+        async with self.make_script():
+            self.script.mtcs.enable_compensation_mode = mock.AsyncMock(
+                side_effect=RuntimeError("Failed to enable hexapod compensation mode.")
+            )
+            with self.assertRaises(
+                RuntimeError, msg="Failed to enable hexapod compensation mode."
+            ):
+                await self.script.ensure_hexapod_compensation_mode_enabled()
+
+    async def test_ensure_dome_following_enabled_failure(self):
+        async with self.make_script():
+            self.script.mtcs.enable_dome_following = mock.AsyncMock(
+                side_effect=RuntimeError("Failed to enable dome following.")
+            )
+            with self.assertRaises(
+                RuntimeError, msg="Failed to enable dome following."
+            ):
+                await self.script.ensure_dome_following_enabled()
