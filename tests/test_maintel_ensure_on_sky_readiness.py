@@ -156,3 +156,84 @@ class TestEnsureOnSkyReadiness(
             aos_ok, aos_msg = await self.script.assert_aos_closed_loop_enabled()
             assert aos_ok is True
             assert aos_msg == ""
+
+    async def test_run_dome_shutter_not_opened(self):
+        async with self.make_script():
+            await self.configure_script(slew_flags="default")
+            # Patch the dome shutter event to return CLOSED states
+            self.script.mtcs.rem.mtdome.evt_shutterMotion.aget = mock.AsyncMock(
+                return_value=mock.Mock(
+                    state=[MTDome.MotionState.CLOSED, MTDome.MotionState.CLOSED]
+                )
+            )
+            with mock.patch.object(self.script.log, "warning") as mock_warning:
+                await self.run_script()
+                # The dome shutter warning should be logged
+                assert any(
+                    "Dome shutters are not open." in str(call.args[0])
+                    for call in mock_warning.call_args_list
+                )
+
+    async def test_run_aos_closed_loop_states(self):
+
+        # Helper to patch the closed loop state and
+        # run the script in a fresh context
+        async def run_with_state(state_value):
+            async with self.make_script():
+                await self.configure_script(slew_flags="default")
+                self.script.mtcs.rem.mtaos.evt_closedLoopState.aget = mock.AsyncMock(
+                    return_value=mock.Mock(state=state_value)
+                )
+                with mock.patch.object(
+                    self.script.log, "warning"
+                ) as mock_warning, mock.patch.object(
+                    self.script.log, "error"
+                ) as mock_error:
+                    await self.run_script()
+                    return mock_warning, mock_error
+
+        # WAITING_IMAGE: should not log warning/error
+        with self.subTest("WAITING_IMAGE"):
+            mock_warning, mock_error = await run_with_state(
+                MTAOS.ClosedLoopState.WAITING_IMAGE
+            )
+            assert not mock_warning.called
+            assert not mock_error.called
+
+        # ERROR: should log error
+        with self.subTest("ERROR"):
+            mock_warning, mock_error = await run_with_state(MTAOS.ClosedLoopState.ERROR)
+            assert any(
+                "AOS Closed Loop is in ERROR state" in str(call.args[0])
+                for call in mock_error.call_args_list
+            )
+
+        # IDLE: should log warning about not started
+        with self.subTest("IDLE"):
+            mock_warning, mock_error = await run_with_state(MTAOS.ClosedLoopState.IDLE)
+            assert any(
+                "AOS Closed Loop is IDLE (not started)" in str(call.args[0])
+                for call in mock_warning.call_args_list
+            )
+
+        # Other states: should log generic warning
+        with self.subTest("Other"):
+            other_states = [
+                s
+                for s in MTAOS.ClosedLoopState
+                if s
+                not in (
+                    MTAOS.ClosedLoopState.WAITING_IMAGE,
+                    MTAOS.ClosedLoopState.ERROR,
+                    MTAOS.ClosedLoopState.IDLE,
+                )
+            ]
+            assert other_states, "No alternative ClosedLoopState left to test"
+            fake_state = other_states[0]
+
+            mock_warning, mock_error = await run_with_state(fake_state)
+            assert mock_warning.called, "Expected a generic-state warning"
+            assert any(
+                "AOS Closed Loop is not in WAITING_IMAGE state" in call.args[0]
+                for call in mock_warning.call_args_list
+            )
