@@ -68,7 +68,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         self.mtcs = None
         self.lsstcam = None
 
-        self.tel_raise_m1m3_min_el = 70.0
+        self.tel_raise_m1m3_min_el = 65.0
 
     async def configure_tcs(self) -> None:
         """Initialize MTCS if not already initialized."""

@@ -237,3 +237,62 @@ class TestEnsureOnSkyReadiness(
                 "AOS Closed Loop is not in WAITING_IMAGE state" in call.args[0]
                 for call in mock_warning.call_args_list
             )
+
+    async def test_ensure_m1m3_raised_at_safe_elevation(self):
+        async with self.make_script():
+            # Helper to patch elevation and detailed state
+            async def run_with_elevation_and_state(elevation, detailed_state):
+                self.script.mtcs.rem.mtmount.tel_elevation.aget = mock.AsyncMock(
+                    return_value=mock.Mock(actualPosition=elevation)
+                )
+                self.script.mtcs.rem.mtm1m3.evt_detailedState.aget = mock.AsyncMock(
+                    return_value=mock.Mock(detailedState=detailed_state)
+                )
+                with mock.patch.object(self.script.mtcs, "raise_m1m3") as mock_raise:
+                    if (
+                        detailed_state
+                        in [
+                            MTM1M3.DetailedState.FAULT,
+                            MTM1M3.DetailedState.LOWERINGFAULT,
+                        ]
+                        or elevation < self.script.tel_raise_m1m3_min_el
+                    ):
+                        with self.assertRaises(RuntimeError):
+                            await self.script.ensure_m1m3_raised_at_safe_elevation()
+                    else:
+                        await self.script.ensure_m1m3_raised_at_safe_elevation()
+                        if detailed_state in [
+                            MTM1M3.DetailedState.PARKED,
+                            MTM1M3.DetailedState.PARKEDENGINEERING,
+                        ]:
+                            mock_raise.assert_awaited_once()
+                        else:
+                            mock_raise.assert_not_called()
+
+            # Subtests for different scenarios
+            with self.subTest("Low elevation"):
+                await run_with_elevation_and_state(
+                    elevation=50.0, detailed_state=MTM1M3.DetailedState.PARKED
+                )
+
+            with self.subTest("Fault state"):
+                await run_with_elevation_and_state(
+                    elevation=75.0, detailed_state=MTM1M3.DetailedState.FAULT
+                )
+
+            with self.subTest("Parked state"):
+                await run_with_elevation_and_state(
+                    elevation=75.0, detailed_state=MTM1M3.DetailedState.PARKED
+                )
+
+            with self.subTest("Active state"):
+                await run_with_elevation_and_state(
+                    elevation=75.0, detailed_state=MTM1M3.DetailedState.ACTIVE
+                )
+
+            with self.subTest("Unexpected state"):
+                with self.assertRaises(RuntimeError) as cm:
+                    await run_with_elevation_and_state(
+                        elevation=75.0, detailed_state=MTM1M3.DetailedState.STANDBY
+                    )
+                assert "M1M3 in unexpected state (STANDBY)" in str(cm.exception)
