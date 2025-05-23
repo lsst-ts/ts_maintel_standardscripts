@@ -31,12 +31,35 @@ from lsst.ts.xml.enums import MTAOS, MTM1M3, MTDome
 
 
 class EnsureOnSkyReadiness(salobj.BaseScript):
-    """Ensure On Sky Readiness
+    """
+    Ensure On Sky Readiness.
 
-    Parameters
-    ----------
-    index : `int`
-        Index of Script SAL component.
+    This script performs a sequence of checks and actions to ensure the
+    telescope and associated systems are ready for on-sky operations.
+    The main steps executed by this script are:
+
+    1. Assert all MTCS and Camera components are enabled.
+    2. Assert that the dome shutters are open.
+    3. Ensure the M2 force balance system is enabled.
+    4. Ensure MTM1M3 is raised at a safe elevation.
+    5. Ensure the MTMount is homed.
+    6. Ensure the M1M3 Force Balance System is enabled.
+    7. Ensure M1M3 Slew Controller Flags are set as required.
+    8. Ensure the M1M3 Mirror Covers are open.
+    9. Ensure Camera Cable Wrap (CCW) following is enabled.
+    10. Ensure Compensation Mode is enabled for both Hexapods.
+    11. Ensure Dome Following Mode is enabled.
+    12. Assert that the AOS (Active Optics System) Closed Loop is enabled.
+
+    At each step, the script logs progress, checks system states, and takes
+    corrective actions or raises warnings/errors as appropriate. Non-critical
+    warnings (such as dome shutters or AOS closed loop not being ready) are
+    highlighted at the end for user attention.
+
+    Note: This script is not a complete end-to-end preparation for on-sky
+    operations. It is a readiness check script that ensures the necessary
+    systems are in place and configured correctly before any on-sky
+    activities are performed.
     """
 
     def __init__(self, index):
