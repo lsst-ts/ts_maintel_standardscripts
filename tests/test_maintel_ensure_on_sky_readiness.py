@@ -107,7 +107,7 @@ class TestEnsureOnSkyReadiness(
 
     async def test_configure_custom_flags(self):
         async with self.make_script():
-            custom_flags = [
+            slew_flags = [
                 "ACCELERATIONFORCES",
                 "BALANCEFORCES",
                 "VELOCITYFORCES",
@@ -115,8 +115,44 @@ class TestEnsureOnSkyReadiness(
             ]
             enable_flags = [True, True, True, False]
             await self.configure_script(
-                slew_flags=custom_flags, enable_flags=enable_flags
+                slew_flags=slew_flags, enable_flags=enable_flags
             )
-            enum_flags = self.script._convert_m1m3_slew_flag_names_to_enum(custom_flags)
+            enum_flags = self.script._convert_m1m3_slew_flag_names_to_enum(slew_flags)
             assert self.script.config.slew_flags == enum_flags
             assert self.script.config.enable_flags == enable_flags
+
+    async def test_run_ready_for_on_sky(self):
+        async with self.make_script():
+            await self.configure_script(slew_flags="default")
+            await self.run_script()
+
+            # Assert all main methods were called exactly once
+            self.script.mtcs.assert_all_enabled.assert_awaited_once()
+            self.script.lsstcam.assert_all_enabled.assert_awaited_once()
+            self.script.mtcs.enable_m2_balance_system.assert_awaited_once()
+            self.script.mtcs.raise_m1m3.assert_not_called()  # Not called if already ACTIVE
+            self.script.mtcs.enable_m1m3_balance_system.assert_awaited_once()
+            self.script.mtcs.set_m1m3_slew_controller_settings.assert_has_awaits(
+                [
+                    mock.call(flag, enable)
+                    for flag, enable in zip(
+                        self.script.config.slew_flags, self.script.config.enable_flags
+                    )
+                ]
+            )
+            self.script.mtcs.open_m1_cover.assert_awaited_once()
+            self.script.mtcs.enable_ccw_following.assert_awaited_once()
+            self.script.mtcs.enable_compensation_mode.assert_has_awaits(
+                [mock.call("mthexapod_1"), mock.call("mthexapod_2")]
+            )
+            self.script.mtcs.enable_dome_following.assert_awaited_once()
+
+            # Assert that the assert methods were called
+            # (dome shutter and aos closed loop)
+            dome_ok, dome_msg = await self.script.assert_dome_shutter_opened()
+            assert dome_ok is True
+            assert dome_msg == ""
+
+            aos_ok, aos_msg = await self.script.assert_aos_closed_loop_enabled()
+            assert aos_ok is True
+            assert aos_msg == ""
