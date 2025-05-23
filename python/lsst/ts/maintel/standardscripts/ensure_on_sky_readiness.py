@@ -91,7 +91,6 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
                 domain=self.domain,
                 intended_usage=LSSTCamUsages.StateTransition,
                 log=self.log,
-                mtcs=self.mtcs,
             )
             await self.lsstcam.start_task
         else:
@@ -129,11 +128,6 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         """
         schema_dict = yaml.safe_load(schema_yaml)
 
-        base_schema_dict = super().get_schema()
-
-        for prop in base_schema_dict["properties"]:
-            schema_dict["properties"][prop] = base_schema_dict["properties"][prop]
-
         return schema_dict
 
     async def configure(self, config):
@@ -163,8 +157,6 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
 
         await self.configure_tcs()
         await self.configure_camera()
-
-        await super().configure(config=config)
 
     def set_metadata(self, metadata):
         metadata.duration = 300
