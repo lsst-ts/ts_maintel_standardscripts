@@ -51,7 +51,9 @@ class TestEnsureOnSkyReadiness(
         self.script.mtcs.start_task = mock.AsyncMock()
         self.script.lsstcam.start_task = mock.AsyncMock()
         self.script.mtcs.assert_all_enabled = mock.AsyncMock()
+        self.script.mtcs.enable = mock.AsyncMock()
         self.script.lsstcam.assert_all_enabled = mock.AsyncMock()
+        self.script.lsstcam.enable = mock.AsyncMock()
         self.script.mtcs.enable_m2_balance_system = mock.AsyncMock()
         self.script.mtcs.raise_m1m3 = mock.AsyncMock()
         self.script.mtcs.enable_m1m3_balance_system = mock.AsyncMock()
@@ -407,3 +409,40 @@ class TestEnsureOnSkyReadiness(
                 RuntimeError, msg="Failed to enable dome following."
             ):
                 await self.script.ensure_dome_following_enabled()
+
+    async def test_components_not_all_enabled(self):
+        async with self.make_script():
+            await self.configure_script(slew_flags="default")
+
+            # Patch assert_all_enabled to raise AssertionError for
+            # mtcs and lsstcam
+            self.script.mtcs.assert_all_enabled = mock.AsyncMock(
+                side_effect=AssertionError("MTCS not all enabled")
+            )
+            self.script.mtcs.enable = mock.AsyncMock()
+            self.script.lsstcam.assert_all_enabled = mock.AsyncMock(
+                side_effect=AssertionError("LSSTCam not all enabled")
+            )
+            self.script.lsstcam.enable = mock.AsyncMock()
+
+            # Test MTCS group
+            with mock.patch.object(self.script.log, "warning") as mock_warning_mtcs:
+                await self.script.ensure_group_all_enabled(self.script.mtcs, "MTCS")
+                self.script.mtcs.assert_all_enabled.assert_awaited_once()
+                self.script.mtcs.enable.assert_awaited_once()
+                mock_warning_mtcs.assert_called()
+                assert "Some MTCS CSCs are not enabled" in str(
+                    mock_warning_mtcs.call_args[0][0]
+                )
+
+            # Test LSSTCam group
+            with mock.patch.object(self.script.log, "warning") as mock_warning_lsstcam:
+                await self.script.ensure_group_all_enabled(
+                    self.script.lsstcam, "LSSTCam"
+                )
+                self.script.lsstcam.assert_all_enabled.assert_awaited_once()
+                self.script.lsstcam.enable.assert_awaited_once()
+                mock_warning_lsstcam.assert_called()
+                assert "Some LSSTCam CSCs are not enabled" in str(
+                    mock_warning_lsstcam.call_args[0][0]
+                )
