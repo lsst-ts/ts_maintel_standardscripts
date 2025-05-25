@@ -21,8 +21,6 @@
 
 __all__ = ["EnsureOnSkyReadiness"]
 
-import asyncio  # Added for F821
-
 import yaml
 from lsst.ts import salobj
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
@@ -200,17 +198,15 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         """
         Check if both axes of the MTMount are homed.
 
-        This method checks the `evt_azimuthHomed` and `evt_elevationHomed`
-        events to determine if both the azimuth and elevation axes are homed.
-
         Returns
         -------
         bool
             True if both axes are homed, False otherwise.
 
-        Logs
-        ----
-        Logs the current state of the azimuth and elevation axes.
+        Raises
+        ------
+        Exception
+            If any error occurs while checking the homed state.
         """
         try:
             az_homed = (
@@ -226,9 +222,9 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
 
             self.log.debug(f"Azimuth homed: {az_homed}, Elevation homed: {el_homed}")
             return az_homed and el_homed
-        except asyncio.TimeoutError:
-            self.log.warning("Timeout while checking MTMount homed state.")
-            return False
+        except Exception as e:
+            self.log.error(f"Error while checking MTMount home status: {e}")
+            raise
 
     async def ensure_group_all_enabled(self, group, group_name):
         """Ensure all components in the group are enabled."""
@@ -371,15 +367,19 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         Ensure both axes of the MTMount are homed.
 
         This method checks if both the azimuth and elevation axes of the
-        MTMount are homed. If either axis is not homed, it issues the
+        MTMount are homed. If either axes are not homed, it issues a
         `cmd_homeBothAxes` command to home both axes.
 
         Raises
         ------
-        RuntimeError
-            If the homing command fails or times out.
+        RuntimeError: On failure to home axes or retrieve status.
         """
-        if not await self._is_mtmount_homed():
+        try:
+            is_homed = await self._is_mtmount_homed()
+        except Exception as e:
+            raise RuntimeError(f"Error while checking MTMount homed status: {e}")
+
+        if not is_homed:
             self.log.info("Homing both axes of the telescope.")
             await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
                 timeout=self.mtcs.long_timeout
