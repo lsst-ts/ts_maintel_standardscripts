@@ -38,7 +38,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
     telescope and associated systems are ready for on-sky operations.
     The main steps executed by this script are:
 
-    1. Assert all MTCS and Camera components are enabled.
+    1. Ensure that all MTCS and Camera components are enabled.
     2. Assert that the dome shutters are open.
     3. Ensure the M2 force balance system is enabled.
     4. Ensure MTM1M3 is raised at a safe elevation.
@@ -229,6 +229,20 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         except asyncio.TimeoutError:
             self.log.warning("Timeout while checking MTMount homed state.")
             return False
+
+    async def ensure_group_all_enabled(self, group, group_name):
+        """Ensure all components in the group are enabled."""
+        try:
+            await group.assert_all_enabled()
+        except AssertionError as e:
+            self.log.warning(
+                f"Some {group_name} CSCs are not enabled ({e}).\n"
+                f"Enabling all {group_name} components."
+            )
+            await group.enable()
+        except Exception as e:
+            self.log.error(f"Unexpected error while checking {group_name}: {e}")
+            raise
 
     async def assert_dome_shutter_opened(self) -> tuple[bool, str]:
         """Check and report the status of the dome shutters.
@@ -502,13 +516,11 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
     async def run(self):
         """Run the script to ensure on-sky readiness."""
 
-        await self.mtcs.assert_all_enabled(
-            message="All MTCS components need to be enabled before going on sky."
-        )
+        await self.checkpoint("Ensure all MTCS components are enabled.")
+        await self.ensure_group_all_enabled(self.mtcs, "MTCS")
 
-        await self.lsstcam.assert_all_enabled(
-            message="All MTCamera components need to be enabled before going on sky."
-        )
+        await self.checkpoint("Ensure all LSSTCam components are enabled.")
+        await self.ensure_group_all_enabled(self.lsstcam, "LSSTCam")
 
         await self.checkpoint("Assert that MTDome Shutters are opened.")
         dome_ok, dome_msg = await self.assert_dome_shutter_opened()
