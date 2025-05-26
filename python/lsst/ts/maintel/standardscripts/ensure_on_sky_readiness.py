@@ -349,8 +349,8 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             self.log.info(f"M1M3 already {detailed_state.name}. Nothing to do.")
         elif detailed_state in parked_state:
             self.log.info(
-                f"TMA elevation safe: {elevation:.2f} deg and M1M3 is "
-                f"parked: ({detailed_state.name}). Raising mirror."
+                f"TMA elevation: {elevation:.2f} deg. M1M3 not raised. "
+                f"Detailed state: {detailed_state.name}. Raising mirror."
             )
             await self.checkpoint("Raising M1M3 to safe position.")
             await self.mtcs.raise_m1m3()
