@@ -229,7 +229,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             await group.assert_all_enabled()
         except AssertionError as e:
             self.log.warning(
-                f"Some {group_name} CSCs are not enabled. \n {e}.\n"
+                f"Some {group_name} CSCs are not enabled. {e}"
                 f"Enabling all {group_name} components."
             )
             await group.enable()
