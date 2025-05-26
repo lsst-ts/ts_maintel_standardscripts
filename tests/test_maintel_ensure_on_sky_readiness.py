@@ -56,6 +56,7 @@ class TestEnsureOnSkyReadiness(
         self.script.lsstcam.enable = mock.AsyncMock()
         self.script.mtcs.enable_m2_balance_system = mock.AsyncMock()
         self.script.mtcs.raise_m1m3 = mock.AsyncMock()
+        self.script.mtcs.enter_m1m3_engineering_mode = mock.AsyncMock()
         self.script.mtcs.enable_m1m3_balance_system = mock.AsyncMock()
         self.script.mtcs.set_m1m3_slew_controller_settings = mock.AsyncMock()
         self.script.mtcs.open_m1_cover = mock.AsyncMock()
@@ -138,6 +139,7 @@ class TestEnsureOnSkyReadiness(
             self.script.lsstcam.assert_all_enabled.assert_awaited_once()
             self.script.mtcs.enable_m2_balance_system.assert_awaited_once()
             self.script.mtcs.raise_m1m3.assert_not_called()  # Not called if already ACTIVE
+            self.script.mtcs.enter_m1m3_engineering_mode.assert_awaited_once()
             self.script.mtcs.enable_m1m3_balance_system.assert_awaited_once()
             self.script.mtcs.set_m1m3_slew_controller_settings.assert_has_awaits(
                 [
@@ -356,6 +358,11 @@ class TestEnsureOnSkyReadiness(
         """Test the script when it fails to enable M1M3 balance system."""
         async with self.make_script():
             await self.configure_script(slew_flags="default")
+
+            # Simulate m1m3 engineering mode
+            self.script.mtcs.enter_m1m3_engineering_mode = mock.AsyncMock(
+                return_value=True
+            )
             self.script.mtcs.enable_m1m3_balance_system = mock.AsyncMock(
                 side_effect=RuntimeError("Failed to enable M1M3 balance system.")
             )
