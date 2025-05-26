@@ -409,7 +409,6 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         """Ensure M1M3 slew controller flags are enabled."""
         self.log.info("Ensuring M1M3 slew controller flags are correctly enabled.")
         for flag, enable in zip(self.config.slew_flags, self.config.enable_flags):
-            self.log.info(f"Setting m1m3 slew flag {flag.name} to {enable}.")
             await self.mtcs.set_m1m3_slew_controller_settings(flag, enable)
 
     async def ensure_m1m3_cover_opened(self):
