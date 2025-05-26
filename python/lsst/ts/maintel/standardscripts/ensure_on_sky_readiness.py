@@ -227,6 +227,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
     async def ensure_group_all_enabled(self, group, group_name):
         """Ensure all components in the group are enabled."""
         try:
+            self.log.info(f"Ensuring all {group_name} components are enabled.")
             await group.assert_all_enabled()
         except AssertionError as e:
             self.log.warning(
