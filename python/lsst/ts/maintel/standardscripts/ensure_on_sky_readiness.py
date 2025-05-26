@@ -24,7 +24,7 @@ __all__ = ["EnsureOnSkyReadiness"]
 import yaml
 from lsst.ts import salobj
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
-from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.observatory.control.maintel.mtcs import MTCS
 from lsst.ts.xml.enums import MTAOS, MTM1M3, MTDome
 
 
@@ -72,9 +72,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         """Initialize MTCS if not already initialized."""
         if self.mtcs is None:
             self.log.debug("Creating MTCS instance.")
-            self.mtcs = MTCS(
-                domain=self.domain, log=self.log, intended_usage=MTCSUsages.All
-            )
+            self.mtcs = MTCS(domain=self.domain, log=self.log)
             await self.mtcs.start_task
         else:
             self.log.debug("MTCS already initialized.")
@@ -231,7 +229,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             await group.assert_all_enabled()
         except AssertionError as e:
             self.log.warning(
-                f"Some {group_name} CSCs are not enabled ({e}).\n"
+                f"Some {group_name} CSCs are not enabled. \n {e}.\n"
                 f"Enabling all {group_name} components."
             )
             await group.enable()
