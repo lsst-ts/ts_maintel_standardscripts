@@ -352,6 +352,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
                 f"TMA elevation safe: {elevation:.2f} deg and M1M3 is "
                 f"parked: ({detailed_state.name}). Raising mirror."
             )
+            await self.checkpoint("Raising M1M3 to safe position.")
             await self.mtcs.raise_m1m3()
         else:
             raise RuntimeError(
@@ -378,6 +379,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
 
         if not is_homed:
             self.log.info("Homing both axes of the telescope.")
+            await self.checkpoint("Homing both axes.")
             await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
                 timeout=self.mtcs.long_timeout
             )
