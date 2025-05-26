@@ -497,14 +497,14 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             return False, msg
         elif state == MTAOS.ClosedLoopState.IDLE:
             msg = (
-                "AOS Closed Loop is IDLE (not started).\n"
+                "AOS Closed Loop is IDLE (not started)."
                 "Run enable_aos_closed_loop.py script to enable it."
             )
             self.log.warning(msg)
             return False, msg
         else:
             msg = (
-                f"AOS Closed Loop is not in WAITING_IMAGE state.\n "
+                f"AOS Closed Loop is not in WAITING_IMAGE state."
                 f"Current state: {state.name}.\n"
                 "If you expect the closed loop to be enabled, "
                 "run enable_aos_closed_loop.py script."
