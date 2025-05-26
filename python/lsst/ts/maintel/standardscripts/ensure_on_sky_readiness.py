@@ -400,6 +400,9 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         If the force balance system is already enabled, no action is taken.
         """
         self.log.info("Ensuring M1M3 force balance system is enabled.")
+
+        # Ensure M1M3 in engineering mode
+        await self.mtcs.enter_m1m3_engineering_mode()
         await self.mtcs.enable_m1m3_balance_system()
 
     async def ensure_m1m3_slew_controller_flags_enabled(self):
