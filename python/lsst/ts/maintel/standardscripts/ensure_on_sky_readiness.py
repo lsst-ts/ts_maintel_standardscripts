@@ -73,9 +73,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         if self.mtcs is None:
             self.log.debug("Creating MTCS instance.")
             self.mtcs = MTCS(
-                domain=self.domain,
-                log=self.log,
-                intended_usage=MTCSUsages.Slew | MTCSUsages.StateTransition,
+                domain=self.domain, log=self.log, intended_usage=MTCSUsages.All
             )
             await self.mtcs.start_task
         else:
