@@ -1,0 +1,1 @@
+In `enable_aos_closed.py`, increased the CLOSED_LOOP_STATE_TIMEOUT from 10s to 120s to wait longer for the closed loop ready state to be reached.

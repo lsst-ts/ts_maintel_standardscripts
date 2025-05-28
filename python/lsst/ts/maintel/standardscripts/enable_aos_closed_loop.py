@@ -29,7 +29,7 @@ from lsst.ts.standardscripts.base_block_script import BaseBlockScript
 from lsst.ts.xml.enums.MTAOS import ClosedLoopState
 
 CMD_TIMEOUT = 100
-CLOSED_LOOP_STATE_TIMEOUT = 10
+CLOSED_LOOP_STATE_TIMEOUT = 120
 
 
 class EnableAOSClosedLoop(BaseBlockScript):
