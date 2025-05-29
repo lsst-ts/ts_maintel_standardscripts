@@ -66,7 +66,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         self.mtcs = None
         self.lsstcam = None
 
-        self.tel_raise_m1m3_min_el = 65.0
+        self.tel_raise_m1m3_min_el = 20.0
 
     async def configure_tcs(self) -> None:
         """Initialize MTCS if not already initialized."""
@@ -425,7 +425,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
           or other).
         - If covers are already open (retracted), nothing is done.
         - If covers are deployed, ensures the telescope is at a safe elevation
-          (>= 70 degrees). If not, slews the telescope to that elevation,
+          (>= 20 degrees). If not, slews the telescope to that elevation,
           maintaining the current azimuth.
         - Stops telescope tracking before opening the covers.
         - Issues the open command and waits for the operation to complete.
