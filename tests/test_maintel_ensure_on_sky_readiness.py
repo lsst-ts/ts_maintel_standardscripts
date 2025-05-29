@@ -236,7 +236,7 @@ class TestEnsureOnSkyReadiness(
         async with self.make_script():
             await self.configure_script(slew_flags="default")
             self.script.mtcs.rem.mtmount.tel_elevation.aget = mock.AsyncMock(
-                return_value=mock.Mock(actualPosition=25.0)
+                return_value=mock.Mock(actualPosition=15.0)
             )
             self.script.mtcs.rem.mtm1m3.evt_detailedState.aget = mock.AsyncMock(
                 return_value=mock.Mock(detailedState=MTM1M3.DetailedState.PARKED)
