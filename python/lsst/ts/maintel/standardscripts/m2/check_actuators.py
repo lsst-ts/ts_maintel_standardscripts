@@ -27,10 +27,10 @@ import time
 
 import numpy as np
 import yaml
-from lsst.ts.idl.enums.Script import ScriptState
 from lsst.ts.observatory.control.maintel.mtcs import MTCS
 from lsst.ts.salobj import AckError, AckTimeoutError
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
+from lsst.ts.xml.enums.Script import ScriptState
 
 # TODO: DM-41592 move constants from lsst.ts.m2com to ts-xml
 NUM_ACTUATOR = 78

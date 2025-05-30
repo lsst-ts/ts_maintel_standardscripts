@@ -23,22 +23,12 @@ import asyncio
 import logging
 import types
 import unittest
-import warnings
 
 from lsst.ts import salobj
 from lsst.ts.maintel.standardscripts.m1m3 import CheckActuators
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts import BaseScriptTestCase
-from lsst.ts.xml.enums.MTM1M3 import BumpTest
-
-try:
-    from lsst.ts.idl.enums.MTM1M3 import DetailedState
-except ImportError:
-    warnings.warn(
-        "Could not import MTM1M3 from lsst.ts.idl; importing from lsst.ts.xml",
-        UserWarning,
-    )
-    from lsst.ts.xml.enums.MTM1M3 import DetailedStates as DetailedState
+from lsst.ts.xml.enums.MTM1M3 import BumpTest, DetailedStates
 
 
 class FakeBumpTestValue:
@@ -104,7 +94,7 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
         return (self.script,)
 
     async def get_m1m3_detailed_state(self, *args, **kwags):
-        return types.SimpleNamespace(detailedState=DetailedState.PARKED)
+        return types.SimpleNamespace(detailedState=DetailedStates.PARKED)
 
     # Side effects
     async def mock_test_bump(self, actuator_id, primary, secondary):

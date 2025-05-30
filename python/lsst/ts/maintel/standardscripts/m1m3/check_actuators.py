@@ -32,12 +32,11 @@ try:
 except ImportError:
     from lsst.ts.criopy.M1M3FATable import FATABLE as FATable
 
-from lsst.ts.idl.enums.Script import ScriptState
 from lsst.ts.observatory.control.maintel.mtcs import MTCS
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
 from lsst.ts.utils import make_done_future
-from lsst.ts.xml.enums.MTM1M3 import BumpTest
-from lsst.ts.xml.enums.MTM1M3 import DetailedStates as DetailedState
+from lsst.ts.xml.enums.MTM1M3 import BumpTest, DetailedStates
+from lsst.ts.xml.enums.Script import ScriptState
 from lsst.ts.xml.tables.m1m3 import force_actuator_from_id
 
 
@@ -98,7 +97,7 @@ class CheckActuators(BaseBlockScript):
             self.mtcs.assert_liveliness(),
         )
         # Check if m1m3 detailed state is either PARKED or PARKEDENGINEERING
-        expected_states = {DetailedState.PARKED, DetailedState.PARKEDENGINEERING}
+        expected_states = {DetailedStates.PARKED, DetailedStates.PARKEDENGINEERING}
         try:
             await self.mtcs.assert_m1m3_detailed_state(expected_states)
         except AssertionError:
@@ -271,7 +270,7 @@ class CheckActuators(BaseBlockScript):
         start_time = time.monotonic()
 
         # Get M1M3 detailed state
-        detailed_state = DetailedState(
+        detailed_state = DetailedStates(
             (
                 await self.mtcs.rem.mtm1m3.evt_detailedState.aget(
                     timeout=self.mtcs.fast_timeout,

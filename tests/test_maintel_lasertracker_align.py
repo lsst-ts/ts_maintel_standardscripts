@@ -25,11 +25,11 @@ import types
 import unittest
 
 from lsst.ts import standardscripts
-from lsst.ts.idl.enums.LaserTracker import LaserStatus
 from lsst.ts.maintel.standardscripts.laser_tracker import Align, AlignComponent
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.remote_group import RemoteGroup, Usages
 from lsst.ts.salobj import State
+from lsst.ts.xml.enums.LaserTracker import LaserStatus
 
 random.seed(47)  # for set_random_lsst_dds_partition_prefix
 

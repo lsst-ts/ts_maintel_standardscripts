@@ -25,10 +25,9 @@ import unittest
 
 import pytest
 from lsst.ts import salobj, standardscripts, utils
-from lsst.ts.idl.enums.MTPtg import WrapStrategy
 from lsst.ts.maintel.standardscripts.track_target import TrackTarget
 from lsst.ts.observatory.control import RotType
-from lsst.ts.xml.enums.MTPtg import Planets
+from lsst.ts.xml.enums.MTPtg import Planets, WrapStrategy
 
 random.seed(47)  # for set_random_lsst_dds_partition_prefix
 
