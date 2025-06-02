@@ -25,8 +25,6 @@ __all__ = ["DisableAOSClosedLoop"]
 from lsst.ts.observatory.control.maintel.mtcs import MTCS
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
 
-CMD_TIMEOUT = 100
-
 
 class DisableAOSClosedLoop(BaseBlockScript):
     """Disable AOS Closed Loop task to run in parallel to survey mode imaging.
@@ -64,11 +62,11 @@ class DisableAOSClosedLoop(BaseBlockScript):
         await super().configure(config=config)
 
     def set_metadata(self, metadata):
-        metadata.duration = CMD_TIMEOUT
+        metadata.duration = self.mtcs.aos_closed_loop_timeout
 
     async def run_block(self):
         """Disable AOS Closed Loop task that runs
         in parallel to survey mode imaging.
         """
         await self.checkpoint("Disabling AOS Closed Loop")
-        await self.mtcs.rem.mtaos.cmd_stopClosedLoop.start(timeout=CMD_TIMEOUT)
+        await self.mtcs.disable_aos_closed_loop()

@@ -26,10 +26,6 @@ import yaml
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.utils.enums import DOFName
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
-from lsst.ts.xml.enums.MTAOS import ClosedLoopState
-
-CMD_TIMEOUT = 100
-CLOSED_LOOP_STATE_TIMEOUT = 120
 
 
 class EnableAOSClosedLoop(BaseBlockScript):
@@ -128,14 +124,12 @@ class EnableAOSClosedLoop(BaseBlockScript):
         await super().configure(config=config)
 
     def set_metadata(self, metadata):
-        metadata.duration = CMD_TIMEOUT
+        metadata.duration = self.mtcs.aos_closed_loop_timeout
 
     async def run_block(self):
         """Enable AOS Closed Loop task to run
         in parallel to survey mode imaging.
         """
-        self.mtcs.rem.mtaos.evt_closedLoopState.flush()
-
         await self.checkpoint("Enabling AOS Closed Loop")
         config = {
             "zn_selected": self.zn_selected,
@@ -149,23 +143,4 @@ class EnableAOSClosedLoop(BaseBlockScript):
         }
         config_yaml = yaml.safe_dump(config)
 
-        await self.mtcs.rem.mtaos.cmd_startClosedLoop.set_start(
-            config=config_yaml, timeout=CMD_TIMEOUT
-        )
-
-        self.log.info("Waiting for closed loop to be ready.")
-        closed_loop_state = await self.mtcs.rem.mtaos.evt_closedLoopState.aget(
-            timeout=CLOSED_LOOP_STATE_TIMEOUT
-        )
-
-        while closed_loop_state.state != ClosedLoopState.WAITING_IMAGE:
-            if closed_loop_state.state == ClosedLoopState.ERROR:
-                raise RuntimeError("Closed loop in Error state.")
-            else:
-                self.log.info(
-                    f"closed loop state: {ClosedLoopState(closed_loop_state.state).name}."
-                )
-
-            closed_loop_state = await self.mtcs.rem.mtaos.evt_closedLoopState.next(
-                flush=False, timeout=CLOSED_LOOP_STATE_TIMEOUT
-            )
+        await self.mtcs.enable_aos_closed_loop(config=config_yaml)
