@@ -209,6 +209,7 @@ class Align(BaseBlockScript):
                     offset.dRY if abs(offset.dRY) > self.tolerance_angular else 0.0,
                 ]
             )
+            corrections[2] = 0  # zero out z alignment.
 
             if any(corrections):
                 self.log.info(

@@ -68,7 +68,7 @@ class TestAlign(standardscripts.BaseScriptTestCase, unittest.IsolatedAsyncioTest
             }
         )
 
-        self.state_0 = [1, 1, 1, 1, 1]
+        self.state_0 = [1, 1, 0, 1, 1]
         self.laser_status = types.SimpleNamespace(status=LaserStatus.ON)
         return (self.script,)
 
@@ -92,7 +92,7 @@ class TestAlign(standardscripts.BaseScriptTestCase, unittest.IsolatedAsyncioTest
             offsets = types.SimpleNamespace(
                 dX=0.5e-3,
                 dY=0.5e-3,
-                dZ=0.5e-3,
+                dZ=0,
                 dRX=0.5,
                 dRY=0.5,
             )
