@@ -26,10 +26,10 @@ import enum
 
 import numpy as np
 import yaml
-from lsst.ts.idl.enums.LaserTracker import LaserStatus
 from lsst.ts.observatory.control import RemoteGroup
 from lsst.ts.observatory.control.maintel.mtcs import MTCS
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
+from lsst.ts.xml.enums.LaserTracker import LaserStatus
 
 
 # TODO (DM-38880) - Subsitute by class in idl.enum when available

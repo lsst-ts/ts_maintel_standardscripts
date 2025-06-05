@@ -24,12 +24,12 @@ import unittest
 from unittest.mock import patch
 
 from lsst.ts import standardscripts
-from lsst.ts.idl.enums.Script import ScriptState
 from lsst.ts.maintel.standardscripts import TakeAOSSequenceComCam
 from lsst.ts.observatory.control.maintel.comcam import ComCam, ComCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts.base_take_aos_sequence import Mode
 from lsst.ts.utils import index_generator
+from lsst.ts.xml.enums.Script import ScriptState
 
 index_gen = index_generator()
 

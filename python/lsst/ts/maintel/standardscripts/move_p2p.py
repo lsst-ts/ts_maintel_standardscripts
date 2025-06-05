@@ -22,11 +22,11 @@
 import asyncio
 
 import yaml
-from lsst.ts.idl.enums.Script import ScriptState
 from lsst.ts.observatory.control.maintel import MTCS
 from lsst.ts.salobj import type_hints
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
 from lsst.ts.standardscripts.utils import format_grid
+from lsst.ts.xml.enums.Script import ScriptState
 
 
 class MoveP2P(BaseBlockScript):
