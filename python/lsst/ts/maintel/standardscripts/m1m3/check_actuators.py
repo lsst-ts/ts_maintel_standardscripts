@@ -362,7 +362,10 @@ class CheckActuators(BaseBlockScript):
             await self.checkpoint(
                 f"Running bump test for {currently_running_actuators}."
             )
-            await task
+            try:
+                await task
+            except Exception:
+                self.log.exception("Bump test task failed. Ignoring.")
 
         await self.checkpoint("Collecting test results.")
 
