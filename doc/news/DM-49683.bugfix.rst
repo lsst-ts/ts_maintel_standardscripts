@@ -1,0 +1,1 @@
+In take_image_lsstcam.py, fix issue setting value of instrument_setup_time and add missing await to start_task.

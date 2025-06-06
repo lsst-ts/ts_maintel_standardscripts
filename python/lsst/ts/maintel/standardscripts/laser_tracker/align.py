@@ -26,10 +26,10 @@ import enum
 
 import numpy as np
 import yaml
-from lsst.ts.idl.enums.LaserTracker import LaserStatus
 from lsst.ts.observatory.control import RemoteGroup
 from lsst.ts.observatory.control.maintel.mtcs import MTCS
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
+from lsst.ts.xml.enums.LaserTracker import LaserStatus
 
 
 # TODO (DM-38880) - Subsitute by class in idl.enum when available
@@ -38,6 +38,7 @@ class AlignComponent(enum.IntEnum):
     Camera = 3
     TMA_CENTRAL = 4
     TMA_UPPER = 5
+    CALIBRATION_SCREEN = 6
 
 
 class Align(BaseBlockScript):
@@ -208,6 +209,7 @@ class Align(BaseBlockScript):
                     offset.dRY if abs(offset.dRY) > self.tolerance_angular else 0.0,
                 ]
             )
+            corrections[2] = 0  # zero out z alignment.
 
             if any(corrections):
                 self.log.info(

@@ -98,7 +98,7 @@ class PowerOffTunableLaser(salobj.BaseScript):
                 name="TunableLaser",
             )
 
-        self.laser.start_task
+        await self.laser.start_task
 
         self.log.info("Configure completed")
 

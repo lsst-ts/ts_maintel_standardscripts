@@ -23,10 +23,10 @@ __all__ = ["SetUp"]
 
 import asyncio
 
-from lsst.ts.idl.enums.LaserTracker import LaserStatus
 from lsst.ts.observatory.control import RemoteGroup
 from lsst.ts.observatory.control.remote_group import Usages
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
+from lsst.ts.xml.enums.LaserTracker import LaserStatus
 
 
 class SetUp(BaseBlockScript):

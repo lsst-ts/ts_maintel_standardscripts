@@ -21,6 +21,7 @@
 
 __all__ = ["ParkDome"]
 
+import yaml
 from lsst.ts import salobj
 from lsst.ts.observatory.control.maintel.mtcs import MTCS
 
@@ -45,18 +46,39 @@ class ParkDome(salobj.BaseScript):
         super().__init__(index=index, descr="Park Dome for the MTDome.")
 
         self.mtcs = None
+        self.parking_time_guess = 60.0
 
     @classmethod
     def get_schema(cls):
-        # This script does not require any configuration
-        return None
+        schema_yaml = """
+            $schema: http://json-schema/draft-07/schema#
+            $id: https://github.com/lsst-ts/ts_standardscripts/maintel/mtdome/park_dome.yaml
+            title: ParkDome v1
+            description: Configuration for ParkDome.
+            type: object
+            properties:
+              ignore:
+                  description: >-
+                    CSCs from the group to ignore in status check. Name must
+                    match those in self.group.components, e.g.; hexapod_1.
+                  type: array
+                  items:
+                    type: string
+            additionalProperties: false
+        """
+        return yaml.safe_load(schema_yaml)
 
     async def configure(self, config):
         if self.mtcs is None:
             self.mtcs = MTCS(domain=self.domain, log=self.log)
+            await self.mtcs.start_task
+
+        if hasattr(config, "ignore"):
+            self.mtcs.disable_checks_for_components(components=config.ignore)
 
     def set_metadata(self, metadata):
-        metadata.duration = 5.0
+        metadata.duration = self.parking_time_guess
 
     async def run(self):
+        await self.mtcs.assert_all_enabled()
         await self.mtcs.park_dome()

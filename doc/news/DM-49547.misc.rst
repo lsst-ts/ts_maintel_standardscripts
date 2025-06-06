@@ -1,0 +1,3 @@
+- The check actuators script has been refactored to support detailed failure statuses
+  (e.g., FAILED_TIMEOUT, FAILED_TESTEDPOSITIVE_OVERSHOOT) from the updated XML enumeration 
+  while maintaining backward compatibility with the previous single FAILED logic.

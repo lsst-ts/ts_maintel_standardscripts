@@ -25,11 +25,11 @@ import types
 import unittest
 
 from lsst.ts import standardscripts
-from lsst.ts.idl.enums.LaserTracker import LaserStatus
 from lsst.ts.maintel.standardscripts.laser_tracker import Align, AlignComponent
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.remote_group import RemoteGroup, Usages
 from lsst.ts.salobj import State
+from lsst.ts.xml.enums.LaserTracker import LaserStatus
 
 random.seed(47)  # for set_random_lsst_dds_partition_prefix
 
@@ -68,7 +68,7 @@ class TestAlign(standardscripts.BaseScriptTestCase, unittest.IsolatedAsyncioTest
             }
         )
 
-        self.state_0 = [1, 1, 1, 1, 1]
+        self.state_0 = [1, 1, 0, 1, 1]
         self.laser_status = types.SimpleNamespace(status=LaserStatus.ON)
         return (self.script,)
 
@@ -92,7 +92,7 @@ class TestAlign(standardscripts.BaseScriptTestCase, unittest.IsolatedAsyncioTest
             offsets = types.SimpleNamespace(
                 dX=0.5e-3,
                 dY=0.5e-3,
-                dZ=0.5e-3,
+                dZ=0,
                 dRX=0.5,
                 dRY=0.5,
             )

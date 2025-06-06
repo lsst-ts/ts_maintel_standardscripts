@@ -49,6 +49,7 @@ class OffsetM2Hexapod(salobj.BaseScript):
     """
 
     def __init__(self, index, add_remotes: bool = True):
+        self.mtcs = None
         super().__init__(
             index=index,
             descr="Perform a M2 hexapod offset or reset the position of the provided axes.",

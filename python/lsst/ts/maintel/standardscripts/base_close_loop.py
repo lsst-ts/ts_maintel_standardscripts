@@ -30,7 +30,7 @@ import numpy as np
 import yaml
 from lsst.ts import salobj
 from lsst.ts.observatory.control import BaseCamera
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.utils.enums import ClosedLoopMode, DOFName
 
 STD_TIMEOUT = 10
@@ -119,6 +119,9 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
             self.mtcs = MTCS(
                 domain=self.domain,
                 log=self.log,
+                intended_usage=MTCSUsages.Slew
+                | MTCSUsages.StateTransition
+                | MTCSUsages.AOS,
             )
             await self.mtcs.start_task
         else:
@@ -143,7 +146,10 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                 default: CWFS
               filter:
                 description: Which filter to use when taking intra/extra focal images.
-                type: string
+                oneOf:
+                  - type: string
+                  - type: "null"
+                default: null
               exposure_time:
                 description: The exposure time to use when taking images (sec).
                 type: number
@@ -212,6 +218,20 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                         type: number
                     - type: number
                 default: 0
+              truncation_index:
+                description: >-
+                    Truncation index to use for the estimating the state.
+                type: integer
+                default: 20
+              zn_selected:
+                description: >-
+                    Zernike coefficients to use.
+                type: array
+                items:
+                  type: integer
+                  minimum: 0
+                  maximum: 28
+                default: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 21, 22, 27, 28]
               apply_corrections:
                 description: >-
                     Apply OFC corrections after each iteration.
@@ -230,8 +250,6 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                   items:
                       type: string
             additionalProperties: false
-            required:
-              - filter
         """
         return yaml.safe_load(schema_yaml)
 
@@ -286,6 +304,8 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
         self.apply_corrections = config.apply_corrections
 
         self.gain_sequence = config.gain_sequence
+        self.truncation_index = config.truncation_index
+        self.zn_selected = config.zn_selected
 
         if hasattr(config, "ignore"):
             self.mtcs.disable_checks_for_components(components=config.ignore)
@@ -435,14 +455,28 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
             filter=self.filter,
             note=self.note,
         )
-
-        # Set visit id
         visit_id = int(image[0])
+
+        take_second_snap_task = asyncio.create_task(
+            self.camera.take_acq(
+                self.exposure_time,
+                group_id=self.group_id,
+                reason="INFOCUS" + ("" if self.reason is None else f"_{self.reason}"),
+                program=self.program,
+                filter=self.filter,
+                note=self.note,
+            )
+        )
 
         # Run WEP
         await self.mtcs.rem.mtaos.cmd_runWEP.set_start(
-            visitId=visit_id, timeout=2 * CMD_TIMEOUT, config=self.wep_config
+            visitId=visit_id,
+            extraId=None,
+            useOCPS=self.use_ocps,
+            config=self.wep_config,
+            timeout=2 * CMD_TIMEOUT,
         )
+        await take_second_snap_task
 
     async def compute_ofc_offsets(self, rotation_angle: float, gain: float) -> None:
         """Compute offsets using ts_ofc.
@@ -455,9 +489,12 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
             Gain to apply to the offsets.
         """
         # Create the config to run OFC
+        filter = self.filter if self.filter is not None else "r_57"
         config = {
-            "filter_name": self.filter,
+            "filter_name": filter,
             "rotation_angle": rotation_angle,
+            "truncation_index": self.truncation_index,
+            "zn_selected": self.zn_selected,
             "comp_dof_idx": {
                 "m2HexPos": [float(val) for val in self.used_dofs[:5]],
                 "camHexPos": [float(val) for val in self.used_dofs[5:10]],

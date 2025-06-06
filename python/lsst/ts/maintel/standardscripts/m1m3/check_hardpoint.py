@@ -22,20 +22,11 @@
 __all__ = ["CheckHardpoint"]
 
 import asyncio
-import warnings
 
 import yaml
 from lsst.ts.observatory.control.maintel.mtcs import MTCS
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
-
-try:
-    from lsst.ts.idl.enums.MTM1M3 import DetailedState
-except ImportError:
-    warnings.warn(
-        "Could not import MTM1M3 from lsst.ts.idl; importing from lsst.ts.xml",
-        UserWarning,
-    )
-    from lsst.ts.xml.enums.MTM1M3 import DetailedStates as DetailedState
+from lsst.ts.xml.enums.MTM1M3 import DetailedStates
 
 
 class CheckHardpoint(BaseBlockScript):
@@ -133,7 +124,7 @@ class CheckHardpoint(BaseBlockScript):
             self.mtcs.assert_all_enabled(),
             self.mtcs.assert_liveliness(),
             self.mtcs.assert_m1m3_detailed_state(
-                {DetailedState.PARKED, DetailedState.PARKEDENGINEERING}
+                {DetailedStates.PARKED, DetailedStates.PARKEDENGINEERING}
             ),
         )
 

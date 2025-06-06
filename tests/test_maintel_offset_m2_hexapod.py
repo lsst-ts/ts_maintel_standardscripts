@@ -24,10 +24,10 @@ import unittest
 
 import pytest
 from lsst.ts import salobj
-from lsst.ts.idl.enums.Script import ScriptState
 from lsst.ts.maintel.standardscripts import OffsetM2Hexapod
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts import BaseScriptTestCase
+from lsst.ts.xml.enums.Script import ScriptState
 
 
 class TestOffsetM2Hexapod(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
