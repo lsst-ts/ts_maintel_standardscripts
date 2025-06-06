@@ -1,3 +1,0 @@
-In focus_sweep_lsstcam.py:
-- Fix bug in LSSTCam
-- Add StateTransition usage to LSSTCam

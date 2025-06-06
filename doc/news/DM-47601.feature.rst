@@ -1,1 +1,0 @@
-In set_dof.py script add ability to synchronize dof with state of a specific day obs and sequence number.

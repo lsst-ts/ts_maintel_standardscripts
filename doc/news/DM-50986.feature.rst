@@ -1,1 +1,0 @@
-In enable_aos_closed_loop.py script, add option to configure the zernike selected. 
