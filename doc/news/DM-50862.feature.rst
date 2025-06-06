@@ -1,0 +1,1 @@
+* Added a new script `EnsureOnSkyReadiness` to perform a comprehensive sequence of checks and actions ensuring the telescope and associated systems are ready for on-sky operations.
