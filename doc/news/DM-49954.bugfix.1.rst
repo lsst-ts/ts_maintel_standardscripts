@@ -1,1 +1,0 @@
-Await for start_task in enable/disable dome following scripts.

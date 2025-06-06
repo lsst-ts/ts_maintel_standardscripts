@@ -1,1 +1,0 @@
-Add ignore property to park_dome.py and unpark_dome.py scripts.

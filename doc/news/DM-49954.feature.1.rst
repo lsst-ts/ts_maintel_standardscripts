@@ -1,3 +1,0 @@
-In ``set_dof.py``:
-- ignore errors importing lsst_efd_client
-- Remove required properties

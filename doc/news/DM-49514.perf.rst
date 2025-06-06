@@ -1,1 +1,0 @@
-Add `take_aos_sequence_lsstcam.py` and abstract aos sequence into `base_take_aos_sequence.py`

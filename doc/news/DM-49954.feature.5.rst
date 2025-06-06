@@ -1,3 +1,0 @@
-In take_aos_sequence:
-- Add LSSTCamUsages.StateTransition to the intended usages when creating the LSSTCam object.
-- Abstract oods property

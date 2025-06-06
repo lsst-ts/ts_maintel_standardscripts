@@ -1,1 +1,0 @@
-In `laser_tracker/align.py`, introduced a new `zn_selected` property in the schema and related methods.

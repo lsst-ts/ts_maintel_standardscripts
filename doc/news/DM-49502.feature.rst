@@ -1,1 +1,0 @@
-Update scripts that subclass ``BaseTakeImage`` to define ``tcs`` property.

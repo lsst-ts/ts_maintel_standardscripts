@@ -1,1 +1,0 @@
-Update stop_rotator.py to add missing await to start_task.

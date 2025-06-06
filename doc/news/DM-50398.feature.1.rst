@@ -1,1 +1,0 @@
-Update `laser_tracker/align.py` script to add calibration screen to the list of targets.
