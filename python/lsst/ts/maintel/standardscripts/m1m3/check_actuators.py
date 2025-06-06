@@ -34,7 +34,6 @@ except ImportError:
 
 from lsst.ts.observatory.control.maintel.mtcs import MTCS
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
-from lsst.ts.utils import make_done_future
 from lsst.ts.xml.enums.MTM1M3 import BumpTest, DetailedStates
 from lsst.ts.xml.enums.Script import ScriptState
 from lsst.ts.xml.tables.m1m3 import force_actuator_from_id
@@ -305,13 +304,16 @@ class CheckActuators(BaseBlockScript):
         # Get the failure states
         failed_states = self._get_failed_states()
 
-        timer_task = make_done_future()
+        await self.checkpoint("Running bump test.")
 
-        for i, actuator_id in enumerate(self.actuators_to_test):
+        actuator_bump_test_tasks = dict()
+
+        async for actuator_type in self.mtcs.get_m1m3_actuator_to_test(
+            self.actuators_to_test
+        ):
             await self.mtcs.assert_all_enabled()
+            actuator_id = actuator_type.actuator_id
 
-            # Get the actuator type (SAA or DAA)
-            actuator_type = force_actuator_from_id(actuator_id).actuator_type.name
             secondary_exist = self.has_secondary_actuator(actuator_id)
 
             # Get primary and secondary indexes
@@ -320,52 +322,73 @@ class CheckActuators(BaseBlockScript):
             if secondary_exist:
                 secondary_index = self.m1m3_secondary_actuator_ids.index(actuator_id)
 
-            # Checkpoint before running the bump test
-            if secondary_exist:
-                await self.checkpoint(
-                    f"Running bump test on DAA FA ID: {actuator_id} "
-                    f"(Primary/Secondary: {primary_index}/{secondary_index})"
-                )
-            else:
-                await self.checkpoint(
-                    f"Running bump test on SAA FA ID: {actuator_id} "
-                    f"(Primary {primary_index})"
-                )
-
             # Run the bump test
-            try:
-                if not timer_task.done():
-                    self.log.debug("Waiting timer task before running bump test.")
-                    await timer_task
-                    self.log.debug("Timer task done. Running bump test.")
-
-                await self.mtcs.run_m1m3_actuator_bump_test(
+            task = asyncio.create_task(
+                self.mtcs.run_m1m3_actuator_bump_test(
                     actuator_id=actuator_id,
                     primary=True,
                     secondary=secondary_exist,
                 )
-            except RuntimeError:
-                self.log.exception(
-                    f"Failed to run bump test on FA ID {actuator_id}. Creating timer task for next test."
-                )
-                timer_task = asyncio.create_task(asyncio.sleep(self.time_one_bump))
+            )
+            actuator_bump_test_tasks[actuator_type.actuator_id] = task
 
+            await self.mtcs.wait_m1m3_actuator_in_testing_state(actuator_type)
+
+            currently_running_actuators = ", ".join(
+                [
+                    f"{actuator_id}"
+                    for actuator_id in actuator_bump_test_tasks
+                    if not actuator_bump_test_tasks[actuator_id].done()
+                ]
+            )
+            await self.checkpoint(
+                f"Running bump test for {currently_running_actuators}."
+            )
+
+        self.log.info("Finished scheduling all tests, waiting for them to complete.")
+
+        running_tasks = [
+            task for task in actuator_bump_test_tasks.values() if not task.done()
+        ]
+
+        for task in asyncio.as_completed(running_tasks):
+            currently_running_actuators = ", ".join(
+                [
+                    f"{actuator_id}"
+                    for actuator_id in actuator_bump_test_tasks
+                    if not actuator_bump_test_tasks[actuator_id].done()
+                ]
+            )
+            await self.checkpoint(
+                f"Running bump test for {currently_running_actuators}."
+            )
+            try:
+                await task
+            except Exception:
+                self.log.exception("Bump test task failed. Ignoring.")
+
+        await self.checkpoint("All tasks completed; preparing to collect results.")
+
+        tasks = [task for task in actuator_bump_test_tasks.values()]
+
+        for task in asyncio.as_completed(tasks):
+            try:
+                await task
+            except Exception:
+                self.log.exception("Bump test task failed. Ignoring.")
+
+        await self.checkpoint("Collecting test results.")
+
+        for i, actuator_id in enumerate(self.actuators_to_test):
+            actuator_type = force_actuator_from_id(actuator_id)
+            primary_index = actuator_type.index
+            secondary_index = actuator_type.s_index
             # Getting test status
             primary_status, secondary_status = (
                 await self.mtcs.get_m1m3_bump_test_status(actuator_id=actuator_id)
             )
 
-            # Log status update after bump test
-            secondary_status_text = (
-                f"Secondary FA (Index {secondary_index}): {secondary_status.name.upper()}."
-                if secondary_exist
-                else ""
-            )
-            self.log.info(
-                f"Bump test done for {i + 1} of {len(self.actuators_to_test)}. "
-                f"FA ID {actuator_id} ({actuator_type}). Primary FA (Index {primary_index}): "
-                f"{primary_status.name.upper()}. {secondary_status_text}"
-            )
+            has_secondary_actuator = self.has_secondary_actuator(actuator_id)
 
             # Record failures
             primary_failure_type = (
@@ -373,13 +396,25 @@ class CheckActuators(BaseBlockScript):
             )
             secondary_failure_type = (
                 secondary_status.name
-                if secondary_exist and secondary_status in failed_states
+                if has_secondary_actuator and secondary_status in failed_states
                 else None
             )
 
-            if primary_failure_type or secondary_failure_type:
+            # Log status update after bump test
+            secondary_status_text = (
+                f" Secondary FA (Index {secondary_index}): {secondary_failure_type}."
+                if secondary_failure_type is not None
+                else ""
+            )
+            self.log.info(
+                f"Bump test done for {i + 1} of {len(self.actuators_to_test)}. "
+                f"FA ID {actuator_id}. Primary FA (Index {primary_index}): "
+                f"{primary_failure_type}.{secondary_status_text}"
+            )
+
+            if primary_failure_type is not None or secondary_failure_type is not None:
                 self.failures[actuator_id] = {
-                    "type": actuator_type,
+                    "type": actuator_type.actuator_type.name,
                     "primary_index": primary_index,
                     "secondary_index": secondary_index,
                     "primary_failure": primary_failure_type,
