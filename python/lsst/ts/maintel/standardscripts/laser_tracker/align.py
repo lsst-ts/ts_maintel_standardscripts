@@ -110,7 +110,7 @@ class Align(BaseBlockScript):
                     M2: Secondary mirror.
                     Camera: LSST Camera.
                 type: string
-                enum: ["Camera", "M2"]
+                enum: ["Camera", "M2", "CALIBRATION_SCREEN"]
         additionalProperties: false
         required:
             - target
