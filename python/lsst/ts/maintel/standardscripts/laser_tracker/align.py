@@ -23,6 +23,7 @@ __all__ = ["Align", "AlignComponent"]
 
 import asyncio
 import enum
+from functools import partial
 
 import numpy as np
 import yaml
@@ -56,6 +57,8 @@ class Align(BaseBlockScript):
     - "M2 Hexapod aligned with laser tracker.": M2 aligned.
     - "Camera Hexapod aligned with laser tracker.": Camera aligned.
     """
+
+    TIMEOUT_STD = 60  # seconds
 
     def __init__(self, index: int):
         super().__init__(index, descr="Align MTCS components with laser tracker.")
@@ -152,9 +155,13 @@ class Align(BaseBlockScript):
         """Get function to align target."""
 
         if self.target == AlignComponent.M2:
-            return self.mtcs.offset_m2_hexapod
+            return partial(self.align_hexapod, hexapod_func=self.mtcs.offset_m2_hexapod)
         elif self.target == AlignComponent.Camera:
-            return self.mtcs.offset_camera_hexapod
+            return partial(
+                self.align_hexapod, hexapod_func=self.mtcs.offset_camera_hexapod
+            )
+        elif self.target == AlignComponent.CALIBRATION_SCREEN:
+            return self.align_calibration_screen
         else:
             raise RuntimeError(f"Invalid target {self.target!r}.")
 
@@ -172,7 +179,6 @@ class Align(BaseBlockScript):
         RuntimeError
             If not aligned after max_iter iterations.
         """
-
         # Set function to align target.
         align_func = self.get_align_func()
 
@@ -200,37 +206,119 @@ class Align(BaseBlockScript):
                     )
                 )
 
-            corrections = np.array(
-                [
-                    offset.dX * 1e3 if abs(offset.dX) > self.tolerance_linear else 0.0,
-                    offset.dY * 1e3 if abs(offset.dY) > self.tolerance_linear else 0.0,
-                    offset.dZ * 1e3 if abs(offset.dZ) > self.tolerance_linear else 0.0,
-                    offset.dRX if abs(offset.dRX) > self.tolerance_angular else 0.0,
-                    offset.dRY if abs(offset.dRY) > self.tolerance_angular else 0.0,
-                ]
-            )
-            corrections[2] = 0  # zero out z alignment.
-
-            if any(corrections):
-                self.log.info(
-                    f"[{n_iter+1:02d}:{self.max_iter:02d}]: Applying corrections: "
-                    f"dX={corrections[0]}, "
-                    f"dY={corrections[1]}, "
-                    f"dZ={corrections[2]}, "
-                    f"dRX={corrections[3]}, "
-                    f"dRY={corrections[4]}."
-                )
-                await align_func(*-corrections)
-
-            else:
-                self.log.info(
-                    f"[{n_iter+1:02d}:{self.max_iter:02d}]: Corrections completed."
-                )
+            done = await align_func(offset, n_iter)
+            if done:
                 return
 
         raise RuntimeError(
             f"Failed to align {self.target} after {self.max_iter} iterations."
         )
+
+    async def align_hexapod(self, offset, n_iter, hexapod_func):
+        """Align hexapod with laser tracker.
+
+        Parameters
+        ----------
+        offset : `lsst.ts.idl.enums.LaserTracker.Offset`
+            Offset data from laser tracker.
+        n_iter : `int`
+            Current iteration number.
+        hexapod_func : callable
+            Hexapod function to align (M2 or Camera).
+
+        Returns
+        -------
+        bool
+            True if aligned, False otherwise.
+        """
+        corrections = np.array(
+            [
+                offset.dX * 1e3 if abs(offset.dX) > self.tolerance_linear else 0.0,
+                offset.dY * 1e3 if abs(offset.dY) > self.tolerance_linear else 0.0,
+                offset.dZ * 1e3 if abs(offset.dZ) > self.tolerance_linear else 0.0,
+                offset.dRX if abs(offset.dRX) > self.tolerance_angular else 0.0,
+                offset.dRY if abs(offset.dRY) > self.tolerance_angular else 0.0,
+            ]
+        )
+        corrections[2] = 0  # zero out z alignment.
+
+        if any(corrections):
+            self.log.info(
+                f"[{n_iter+1:02d}:{self.max_iter:02d}]: Applying corrections: "
+                f"dX={corrections[0]}, "
+                f"dY={corrections[1]}, "
+                f"dZ={corrections[2]}, "
+                f"dRX={corrections[3]}, "
+                f"dRY={corrections[4]}."
+            )
+            await hexapod_func(*-corrections)
+            return False
+
+        else:
+            self.log.info(
+                f"[{n_iter+1:02d}:{self.max_iter:02d}]: Corrections completed."
+            )
+            return True
+
+    async def align_calibration_screen(self, offset, n_iter):
+        """Align calibration screen with laser tracker.
+
+        Parameters
+        ----------
+        offset : `lsst.ts.idl.enums.LaserTracker.Offset`
+            Offset data from laser tracker.
+        n_iter : `int`
+            Current iteration number.
+
+        Returns
+        -------
+        bool
+            True if aligned, False otherwise.
+        """
+        # From the measured offsets we calculate the offset in
+        # elevation and azimuth. We assume small angle approximation
+        # So we can devide the offsets by the dZ component
+        # and then comput the arctangent to get the angles.
+        delevation = np.degrees(np.atan(offset.dY / offset.dZ))
+        dazimuth = -np.degrees(np.atan(offset.dX / offset.dZ))
+        self.log.info(
+            f"[{n_iter+1:02d}:{self.max_iter:02d}]: "
+            f"Offsets: dX={offset.dX}, dY={offset.dY}, dZ={offset.dZ}, "
+            f"Calculated angles: delevation={delevation:.6f} deg, "
+            f"dazimuth={dazimuth:.6f} deg."
+        )
+
+        if (
+            abs(delevation) > self.tolerance_angular
+            or abs(dazimuth) > self.tolerance_angular
+        ):
+            self.log.info(
+                f"[{n_iter+1:02d}:{self.max_iter:02d}]: "
+                f"Moving TMA: delevation={delevation}, dazimuth={dazimuth}"
+            )
+            elevation = await self.mtcs.rem.mtmount.tel_elevation.aget(
+                timeout=self.TIMEOUT_STD
+            )
+            azimuth = await self.mtcs.rem.mtmount.tel_azimuth.aget(
+                timeout=self.TIMEOUT_STD
+            )
+            rotation_angle = await self.mtcs.rem.mtrotator.tel_rotation.aget(
+                timeout=self.TIMEOUT_STD
+            )
+            await self.mtcs.point_azel(
+                az=azimuth.actualPosition + dazimuth,
+                el=elevation.actualPosition + delevation,
+                rot_tel=rotation_angle.actualPosition,
+                wait_dome=False,
+            )
+
+            self.log.info("Telescope moved to new position.")
+            return False
+        else:
+            self.log.info(
+                f"[{n_iter+1:02d}:{self.max_iter:02d}]: Calibration screen aligned."
+            )
+            return True
 
     async def check_laser_status_ok(self):
         """Check that laser status is ON."""
