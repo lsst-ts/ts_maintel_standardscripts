@@ -1,0 +1,1 @@
+Updated the m1m3 check actuators script to run the bump test concurrently for multiple actuators. It relies on the new ``get_m1m3_actuator_to_test`` method from ``MTCS`` to retrieve feasible actuators to test concurrently.
