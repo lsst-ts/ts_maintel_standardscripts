@@ -587,15 +587,6 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                 start_rotation_angle.actualPosition + end_rotation_angle.actualPosition
             ) / 2
 
-            # Save the wavefront error
-            wavefront_error = await self.mtcs.rem.mtaos.evt_wavefrontError.next(
-                flush=False, timeout=STD_TIMEOUT
-            )
-
-            self.log.info(
-                f"Wavefront error zernike coefficients: {wavefront_error} in um."
-            )
-
             # Compute ts_ofc offsets
             dof_offset = await self.compute_ofc_offsets(
                 rotation_angle, self.get_gain(i)
