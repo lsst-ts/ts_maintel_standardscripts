@@ -606,7 +606,9 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                 await self.mtcs.rem.mtaos.cmd_issueCorrection.start(timeout=CMD_TIMEOUT)
 
             # Check if corrections have converged. If they have, then we stop.
-            if all(np.abs(dof_offset.visitDoF) < self.threshold):
+            if len(dof_offset.visitDoF) == len(self.threshold) and all(
+                np.abs(dof_offset.visitDoF) < self.threshold
+            ):
                 self.log.info(f"OFC offsets are inside tolerance ({self.threshold}). ")
                 if checkpoint:
                     await self.checkpoint(
