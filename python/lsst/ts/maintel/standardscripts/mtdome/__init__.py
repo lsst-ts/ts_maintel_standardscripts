@@ -24,6 +24,7 @@ from .crawl_az import *
 from .disable_dome_following import *
 from .enable_dome_following import *
 from .home_dome import *
+from .offset_dome import *
 from .open_dome import *
 from .park_dome import *
 from .slew_dome import *
