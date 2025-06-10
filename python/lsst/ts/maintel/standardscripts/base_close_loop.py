@@ -489,9 +489,15 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
             Gain to apply to the offsets.
         """
         # Create the config to run OFC
-        filter = self.filter if self.filter is not None else "r_57"
+        filter_name = (
+            self.filter
+            if self.filter is not None
+            else (
+                await self.camera.evt_endSetFilter.aget(timeout=STD_TIMEOUT)
+            ).filterName
+        )
         config = {
-            "filter_name": filter,
+            "filter_name": filter_name,
             "rotation_angle": rotation_angle,
             "truncation_index": self.truncation_index,
             "zn_selected": self.zn_selected,
