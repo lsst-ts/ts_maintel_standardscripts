@@ -1,0 +1,4 @@
+In ``base_close_loop.py``:
+- Update compute_ofc_offset to retrieve the filter from the camera if it is not set.
+- Ensure threshold check only runs if the visit dof and threshold array are the same length.
+- Stop waiting for the wep results after run wep executes.
