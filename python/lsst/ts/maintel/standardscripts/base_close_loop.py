@@ -489,9 +489,15 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
             Gain to apply to the offsets.
         """
         # Create the config to run OFC
-        filter = self.filter if self.filter is not None else "r_57"
+        filter_name = (
+            self.filter
+            if self.filter is not None
+            else (
+                await self.camera.evt_endSetFilter.aget(timeout=STD_TIMEOUT)
+            ).filterName
+        )
         config = {
-            "filter_name": filter,
+            "filter_name": filter_name,
             "rotation_angle": rotation_angle,
             "truncation_index": self.truncation_index,
             "zn_selected": self.zn_selected,
@@ -587,15 +593,6 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                 start_rotation_angle.actualPosition + end_rotation_angle.actualPosition
             ) / 2
 
-            # Save the wavefront error
-            wavefront_error = await self.mtcs.rem.mtaos.evt_wavefrontError.next(
-                flush=False, timeout=STD_TIMEOUT
-            )
-
-            self.log.info(
-                f"Wavefront error zernike coefficients: {wavefront_error} in um."
-            )
-
             # Compute ts_ofc offsets
             dof_offset = await self.compute_ofc_offsets(
                 rotation_angle, self.get_gain(i)
@@ -615,7 +612,9 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                 await self.mtcs.rem.mtaos.cmd_issueCorrection.start(timeout=CMD_TIMEOUT)
 
             # Check if corrections have converged. If they have, then we stop.
-            if all(np.abs(dof_offset.visitDoF) < self.threshold):
+            if len(dof_offset.visitDoF) == len(self.threshold) and all(
+                np.abs(dof_offset.visitDoF) < self.threshold
+            ):
                 self.log.info(f"OFC offsets are inside tolerance ({self.threshold}). ")
                 if checkpoint:
                     await self.checkpoint(
