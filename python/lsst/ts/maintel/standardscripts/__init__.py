@@ -33,6 +33,7 @@ from .enable_comcam import *
 from .enable_hexapod_compensation_mode import *
 from .enable_lsstcam import *
 from .enable_mtcs import *
+from .ensure_onsky_readiness import *
 from .focus_sweep_comcam import *
 from .focus_sweep_lsstcam import *
 from .home_both_axes import *
