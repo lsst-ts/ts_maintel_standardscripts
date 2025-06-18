@@ -1,0 +1,1 @@
+Add a `prepare_for/onsky.py` script that prepares the telescope and dome for on-sky operations.
