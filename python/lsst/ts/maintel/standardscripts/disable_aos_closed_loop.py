@@ -22,7 +22,7 @@
 __all__ = ["DisableAOSClosedLoop"]
 
 
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
 
 
@@ -51,7 +51,9 @@ class DisableAOSClosedLoop(BaseBlockScript):
     async def configure_tcs(self) -> None:
         if self.mtcs is None:
             self.log.debug("Creating MTCS.")
-            self.mtcs = MTCS(domain=self.domain, log=self.log)
+            self.mtcs = MTCS(
+                domain=self.domain, log=self.log, intended_usage=MTCSUsages.AOS
+            )
             await self.mtcs.start_task
         else:
             self.log.debug("MTCS already defined, skipping.")

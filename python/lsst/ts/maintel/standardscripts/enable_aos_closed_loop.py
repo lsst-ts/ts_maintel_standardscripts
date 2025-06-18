@@ -54,7 +54,7 @@ class EnableAOSClosedLoop(BaseBlockScript):
         if self.mtcs is None:
             self.log.debug("Creating MTCS.")
             self.mtcs = MTCS(
-                domain=self.domain, log=self.log, intended_usage=MTCSUsages.Slew
+                domain=self.domain, log=self.log, intended_usage=MTCSUsages.AOS
             )
             await self.mtcs.start_task
         else:
