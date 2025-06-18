@@ -20,8 +20,6 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 
-import asyncio
-import types
 import unittest
 
 import numpy as np
@@ -29,9 +27,6 @@ import yaml
 from lsst.ts import standardscripts
 from lsst.ts.maintel.standardscripts import EnableAOSClosedLoop
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
-from lsst.ts.xml.enums.MTAOS import ClosedLoopState
-
-CMD_TIMEOUT = 100
 
 
 class TestEnableAOSClosedLoop(
@@ -46,21 +41,9 @@ class TestEnableAOSClosedLoop(
             intended_usage=MTCSUsages.DryTest,
             log=self.script.log,
         )
-        self.script.mtcs.rem.mtaos = unittest.mock.AsyncMock()
-        self.script.mtcs.rem.mtaos.configure_mock(
-            **{
-                "evt_closedLoopState.aget": self.get_loop_status,
-            }
-        )
+        self.script.mtcs.enable_aos_closed_loop = unittest.mock.AsyncMock()
 
-        self.closed_loop_state = types.SimpleNamespace(
-            state=ClosedLoopState.WAITING_IMAGE
-        )
         return (self.script,)
-
-    async def get_loop_status(self, *args, **kwags):
-        await asyncio.sleep(0.5)
-        return self.closed_loop_state
 
     async def test_configure(self) -> None:
         # Try configure with minimum set of parameters declared
@@ -120,10 +103,8 @@ class TestEnableAOSClosedLoop(
                 },
                 "zn_selected": config["zn_selected"],
             }
-            self.script.mtcs.rem.mtaos.cmd_startClosedLoop.set_start.assert_awaited_once()
-            self.script.mtcs.rem.mtaos.cmd_startClosedLoop.set_start.assert_awaited_with(
+            self.script.mtcs.enable_aos_closed_loop.assert_awaited_once_with(
                 config=yaml.safe_dump(task_config),
-                timeout=CMD_TIMEOUT,
             )
 
 
