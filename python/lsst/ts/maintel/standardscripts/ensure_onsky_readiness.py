@@ -540,5 +540,9 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         if self.assertion_errors:
             error_messages = "\n\n".join(str(e) for e in self.assertion_errors)
             raise AssertionError(
-                "Script finished with assertion errors:\n\n" f"{error_messages}"
+                "All configurable systems have been properly set up, but the "
+                "following critical systems need manual intervention:\n\n"
+                f"{error_messages}\n\n"
+                "Please take the necessary actions before on-sky operations "
+                "can continue."
             )
