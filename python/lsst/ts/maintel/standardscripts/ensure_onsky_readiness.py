@@ -50,12 +50,15 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
     12. Assert that the AOS (Active Optics System) Closed Loop is enabled.
 
     At each step, the script logs progress, checks system states, and takes
-    corrective actions or raises warnings/errors as appropriate.
+    corrective actions or raises warnings/errors as appropriate. If dome and
+    aos closed loop states are not as expected, it collects the errors and
+    raises an `AssertionError` at the end of the script run, summarizing
+    issues encountered.
 
     Note: This script is not a complete end-to-end preparation for on-sky
     operations. It is a readiness check script that ensures the necessary
-    systems are in place and configured correctly before/while any on-sky
-    activities are performed.
+    systems are in place and configured correctly before on-sky operations
+    are performed.
     """
 
     def __init__(self, index):
@@ -63,6 +66,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
 
         self.mtcs = None
         self.lsstcam = None
+        self.assertion_errors = []
 
         self.tel_raise_m1m3_min_el = 20.0
 
@@ -238,35 +242,35 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
     async def assert_dome_shutter_opened(self) -> None:
         """Assert that dome shutters are opened.
 
-        This method checks the current state of the dome shutters and raises
-        a RuntimeError if the dome shutters are not open.
-
-        Raises
-        ------
-        RuntimeError
-            If the dome shutters are not open.
+        This method checks the current state of the dome shutters. If they
+        are not open, it logs a warning and stores the error to be raised
+        at the end of the script.
         """
         self.log.info("Assert that dome shutters are opened.")
 
-        self.mtcs.rem.mtdome.evt_shutterMotion.flush()
-        shutter_state = await self.mtcs.rem.mtdome.evt_shutterMotion.aget(
-            timeout=self.mtcs.fast_timeout
-        )
-        shutter_state.state = [
-            MTDome.MotionState(value) for value in shutter_state.state
-        ]
-        self.log.info(f"Dome shutter state: {shutter_state.state}.")
-
-        expected_states = [MTDome.MotionState.OPEN, MTDome.MotionState.OPEN]
-        if shutter_state.state == expected_states:
-            self.log.info("Dome shutters are already open.")
-        else:
-            raise RuntimeError(
-                "Dome shutters are not open.\n"
-                f"Reported state: {shutter_state.state}.\n"
-                f"Expected state: {expected_states}.\n"
-                "Please check and open the dome shutters."
+        try:
+            self.mtcs.rem.mtdome.evt_shutterMotion.flush()
+            shutter_state = await self.mtcs.rem.mtdome.evt_shutterMotion.aget(
+                timeout=self.mtcs.fast_timeout
             )
+            shutter_state.state = [
+                MTDome.MotionState(value) for value in shutter_state.state
+            ]
+            self.log.info(f"Dome shutter state: {shutter_state.state}.")
+
+            expected_states = [MTDome.MotionState.OPEN, MTDome.MotionState.OPEN]
+            if shutter_state.state == expected_states:
+                self.log.info("Dome shutters are already open.")
+            else:
+                raise RuntimeError(
+                    "Dome shutters are not open.\n"
+                    f"Reported state: {shutter_state.state}.\n"
+                    f"Expected state: {expected_states}.\n"
+                    "Please check and open the dome shutters."
+                )
+        except Exception as e:
+            self.log.warning(f"Dome shutter assertion failed: {e}")
+            self.assertion_errors.append(e)
 
     async def ensure_m2_balance_system_enabled(self):
         """Ensure the M2 force balance system is enabled.
@@ -465,31 +469,31 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
     async def assert_aos_closed_loop_enabled(self) -> None:
         """Assert that AOS Closed Loop is enabled.
 
-         This method checks the current state of the AOS closed loop and raises
-         a RuntimeError if the AOS closed loop is not in WAITING_IMAGE state.
-
-        Raises
-         ------
-         RuntimeError
-             If the AOS closed loop is not in WAITING_IMAGE state.
+        This method checks the current state of the AOS closed loop. If it
+        is not in WAITING_IMAGE state, it logs a warning and stores the
+        error to be raised at the end of the script.
         """
         self.log.info("Assert that AOS Closed Loop is enabled.")
 
-        self.mtcs.rem.mtaos.evt_closedLoopState.flush()
-        closed_loop_state_evt = await self.mtcs.rem.mtaos.evt_closedLoopState.aget(
-            timeout=self.mtcs.fast_timeout
-        )
-        state = MTAOS.ClosedLoopState(closed_loop_state_evt.state)
-        self.log.info(f"AOS Closed Loop state: {state.name}.")
-
-        if state == MTAOS.ClosedLoopState.WAITING_IMAGE:
-            self.log.info("AOS Closed Loop is enabled and waiting for image.")
-        else:
-            raise RuntimeError(
-                f"AOS Closed Loop is not in WAITING_IMAGE state.\n"
-                f"Current state: {state.name}.\n"
-                "Make sure aos closed loop is enabled. "
+        try:
+            self.mtcs.rem.mtaos.evt_closedLoopState.flush()
+            closed_loop_state_evt = await self.mtcs.rem.mtaos.evt_closedLoopState.aget(
+                timeout=self.mtcs.fast_timeout
             )
+            state = MTAOS.ClosedLoopState(closed_loop_state_evt.state)
+            self.log.info(f"AOS Closed Loop state: {state.name}.")
+
+            if state == MTAOS.ClosedLoopState.WAITING_IMAGE:
+                self.log.info("AOS Closed Loop is enabled and waiting for image.")
+            else:
+                raise RuntimeError(
+                    f"AOS Closed Loop is not in WAITING_IMAGE state.\n"
+                    f"Current state: {state.name}.\n"
+                    "Make sure aos closed loop is enabled. "
+                )
+        except Exception as e:
+            self.log.warning(f"AOS closed loop assertion failed: {e}")
+            self.assertion_errors.append(e)
 
     async def run(self):
         """Run the script to ensure on-sky readiness."""
@@ -532,3 +536,13 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
 
         await self.checkpoint("Assert that AOS Closed Loop is enabled.")
         await self.assert_aos_closed_loop_enabled()
+
+        if self.assertion_errors:
+            error_messages = "\n\n".join(str(e) for e in self.assertion_errors)
+            raise AssertionError(
+                "All configurable systems have been properly set up, but the "
+                "following critical systems need manual intervention:\n\n"
+                f"{error_messages}\n\n"
+                "Please take the necessary actions before on-sky operations "
+                "can continue."
+            )
