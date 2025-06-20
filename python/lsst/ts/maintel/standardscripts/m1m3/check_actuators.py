@@ -364,20 +364,12 @@ class CheckActuators(BaseBlockScript):
             )
             try:
                 await task
+            except asyncio.CancelledError:
+                self.log.info("Bump test task cancelled; ignoring.")
             except Exception:
                 self.log.exception("Bump test task failed. Ignoring.")
 
-        await self.checkpoint("All tasks completed; preparing to collect results.")
-
-        tasks = [task for task in actuator_bump_test_tasks.values()]
-
-        for task in asyncio.as_completed(tasks):
-            try:
-                await task
-            except Exception:
-                self.log.exception("Bump test task failed. Ignoring.")
-
-        await self.checkpoint("Collecting test results.")
+        await self.checkpoint("All tasks completed; collecting results.")
 
         for i, actuator_id in enumerate(self.actuators_to_test):
             actuator_type = force_actuator_from_id(actuator_id)
