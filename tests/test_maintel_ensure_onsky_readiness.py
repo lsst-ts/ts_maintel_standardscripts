@@ -211,7 +211,7 @@ class TestEnsureOnSkyReadiness(
                     state=[MTDome.MotionState.CLOSED, MTDome.MotionState.CLOSED]
                 )
             )
-            with pytest.raises(AssertionError):
+            with self.assertRaises(AssertionError, msg="Dome shutters are not open"):
                 await self.run_script()
 
     async def test_run_ensure_m2_balance_system_enabled_failure(self):
@@ -424,22 +424,91 @@ class TestEnsureOnSkyReadiness(
             self.script.mtcs.rem.mtaos.evt_closedLoopState.aget = mock.AsyncMock(
                 return_value=mock.Mock(state=MTAOS.ClosedLoopState.WAITING_IMAGE)
             )
-            await self.run_script()  # Should complete successfully
+            await self.run_script()
 
-        # ERROR: should raise exception
+        # ERROR state: should raise AssertionError
         async with self.make_script():
             await self.configure_script(slew_flags="default")
             self.script.mtcs.rem.mtaos.evt_closedLoopState.aget = mock.AsyncMock(
                 return_value=mock.Mock(state=MTAOS.ClosedLoopState.ERROR)
             )
-            with pytest.raises(AssertionError):
+            with self.assertRaises(
+                AssertionError, msg="AOS Closed Loop is not in WAITING_IMAGE state"
+            ):
                 await self.run_script()
 
-        # IDLE: should raise exception
+        # IDLE state: should raise AssertionError
         async with self.make_script():
             await self.configure_script(slew_flags="default")
             self.script.mtcs.rem.mtaos.evt_closedLoopState.aget = mock.AsyncMock(
                 return_value=mock.Mock(state=MTAOS.ClosedLoopState.IDLE)
             )
-            with pytest.raises(AssertionError):
+            with self.assertRaises(
+                AssertionError, msg="AOS Closed Loop is not in WAITING_IMAGE state"
+            ):
                 await self.run_script()
+
+    async def test_run_collects_and_raises_assertion_errors(self):
+        """Test that the script collects assertion errors and raises
+        them at the end."""
+        async with self.make_script():
+            await self.configure_script(slew_flags="default")
+
+            # Mock dome shutter to be closed
+            self.script.mtcs.rem.mtdome.evt_shutterMotion.aget = mock.AsyncMock(
+                return_value=mock.Mock(
+                    state=[MTDome.MotionState.CLOSED, MTDome.MotionState.CLOSED]
+                )
+            )
+
+            # Mock AOS closed loop to be in ERROR state
+            self.script.mtcs.rem.mtaos.evt_closedLoopState.aget = mock.AsyncMock(
+                return_value=mock.Mock(state=MTAOS.ClosedLoopState.ERROR)
+            )
+
+            with self.assertRaises(AssertionError):
+                await self.run_script()
+
+            # Verify that the script continued despite the assertion errors
+            self.script.mtcs.enable_m2_balance_system.assert_awaited_once()
+            self.script.mtcs.enter_m1m3_engineering_mode.assert_awaited_once()
+            self.script.mtcs.enable_m1m3_balance_system.assert_awaited_once()
+            self.script.mtcs.open_m1_cover.assert_awaited_once()
+            self.script.mtcs.enable_ccw_following.assert_awaited_once()
+            self.script.mtcs.enable_dome_following.assert_awaited_once()
+            self.script.mtcs.set_m1m3_slew_controller_settings.assert_has_awaits(
+                [
+                    mock.call(flag, enable)
+                    for flag, enable in zip(
+                        self.script.config.slew_flags,
+                        self.script.config.enable_flags,
+                    )
+                ]
+            )
+            self.script.mtcs.enable_compensation_mode.assert_has_awaits(
+                [mock.call("mthexapod_1"), mock.call("mthexapod_2")]
+            )
+
+            # Verify we have exactly 2 assertion errors
+            self.assertEqual(len(self.script.assertion_errors), 2)
+
+            # Check dome shutter error message
+            dome_error_msg = str(self.script.assertion_errors[0])
+            self.assertIn("Dome shutters are not open", dome_error_msg)
+            self.assertIn(
+                "Reported state: [<MotionState.CLOSED: 2>, <MotionState.CLOSED: 2>]",
+                dome_error_msg,
+            )
+            self.assertIn(
+                "Expected state: [<MotionState.OPEN: 6>, <MotionState.OPEN: 6>]",
+                dome_error_msg,
+            )
+            self.assertIn("Please check and open the dome shutters", dome_error_msg)
+
+            # Check AOS error message
+            aos_error_msg = str(self.script.assertion_errors[1])
+            self.assertIn(
+                "AOS Closed Loop is not in WAITING_IMAGE state", aos_error_msg
+            )
+            self.assertIn("Current state: ERROR", aos_error_msg)
+            self.assertIn("Make sure aos closed loop is enabled", aos_error_msg)

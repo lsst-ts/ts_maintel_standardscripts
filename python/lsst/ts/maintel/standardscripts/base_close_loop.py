@@ -493,7 +493,9 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
             self.filter
             if self.filter is not None
             else (
-                await self.camera.evt_endSetFilter.aget(timeout=STD_TIMEOUT)
+                await self.camera.rem.mtcamera.evt_endSetFilter.aget(
+                    timeout=STD_TIMEOUT
+                )
             ).filterName
         )
         config = {

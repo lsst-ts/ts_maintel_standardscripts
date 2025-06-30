@@ -1,0 +1,1 @@
+Modified the ``ensure_onsky_readiness`` script behavior to keep going if Dome Shutter and/or AOS Closed Loop are not open/enabled.

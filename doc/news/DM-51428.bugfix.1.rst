@@ -1,0 +1,1 @@
+Fixed a bug in ``base_close_loop`` retrieving current camera filter.
