@@ -145,22 +145,22 @@ class LsstCamCheckout(salobj.BaseScript):
 
         Parameters
         ----------
-        config : dict
-            Script configuration dictionary, as defined by the schema.
+        config : types.SimpleNamespace
+            Script configuration object, as defined by the schema.
 
         Raises
         ------
-        ValueError
+        RuntimeError
             If filter_only is True but exercise_filters is False.
         """
         # Validate parameter combinations
-        if config.get("filter_only", False) and not config.get(
-            "exercise_filters", False
+        if getattr(config, "filter_only", False) and not getattr(
+            config, "exercise_filters", False
         ):
-            raise ValueError("filter_only=True requires exercise_filters=True")
+            raise RuntimeError("filter_only=True requires exercise_filters=True")
 
         # Initialize MTCS if filter exercise is requested
-        if config.get("exercise_filters", False):
+        if getattr(config, "exercise_filters", False):
             if self.mtcs is None:
                 self.mtcs = MTCS(
                     domain=self.domain,
@@ -179,19 +179,19 @@ class LsstCamCheckout(salobj.BaseScript):
             )
             await self.lsstcam.start_task
 
-        self.program = config.get("program", "LSSTCAM-CHECKOUT")
-        self.reason = config.get("reason", "daytime_checkout")
-        self.note = config.get("note", "")
-        self.exercise_filters = config.get("exercise_filters", False)
-        self.filter_only = config.get("filter_only", False)
+        self.program = getattr(config, "program", "LSSTCAM-CHECKOUT")
+        self.reason = getattr(config, "reason", "daytime_checkout")
+        self.note = getattr(config, "note", "")
+        self.exercise_filters = getattr(config, "exercise_filters", False)
+        self.filter_only = getattr(config, "filter_only", False)
 
         # Handle ignore parameter for component status checks
-        if "ignore" in config:
-            ignore_components = config["ignore"]
+        if hasattr(config, "ignore"):
+            ignore_components = config.ignore
 
             # Validate that mtrotator is not ignored when exercising filters
             if self.exercise_filters and "mtrotator" in ignore_components:
-                raise ValueError(
+                raise RuntimeError(
                     "Cannot ignore 'mtrotator' when exercise_filters=True. "
                     "The rotator is required for filter changes."
                 )
