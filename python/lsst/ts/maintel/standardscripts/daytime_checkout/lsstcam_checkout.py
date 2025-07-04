@@ -26,6 +26,7 @@ import asyncio
 import yaml
 from lsst.ts import salobj, utils
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts.utils import get_topic_time_utc
 
 STD_TIMEOUT = 10  # seconds
@@ -59,6 +60,7 @@ class LsstCamCheckout(salobj.BaseScript):
     - "Checking LSSTCam Setup": Logs filter installed and available filters.
     - "Bias Frame Verification": Before taking bias frame.
     - "Engineering Frame Verification": Before taking engineering frames.
+    - "Exercising Filter Changes": Before exercising filter wheel (if enabled).
       Final checkpoint in script.
 
     **Details**
@@ -68,6 +70,15 @@ class LsstCamCheckout(salobj.BaseScript):
     motion. It will enable LSSTCam, take a bias and an engineering frame, and
     check that both frames were successfully ingested by OODS with all
     raft/sensor combinations having successful status.
+
+    Optionally, the script can exercise the filter wheel by cycling from the
+    current filter to the third filter slot and back to the original filter.
+    This requires MTCS to be available and enabled. The script can also be
+    configured to only perform the filter exercise and skip the image checks.
+
+    Individual LSSTCam or MTCS components can be ignored in status checks using
+    the 'ignore' parameter. However, when exercising filters, the mtrotator
+    component cannot be ignored as it is required for filter changes.
     """
 
     def __init__(self, index):
@@ -76,6 +87,7 @@ class LsstCamCheckout(salobj.BaseScript):
             descr="Execute daytime checkout of LSSTCam.",
         )
         self.lsstcam = None
+        self.mtcs = None
         self.timeout = STD_TIMEOUT
         self.ingestion_timeout = INGESTION_TIMEOUT
         self.current_filter = None  # Store current filter discovered during checkout
@@ -102,6 +114,28 @@ class LsstCamCheckout(salobj.BaseScript):
                 description: Observer note to be added to the image header.
                 type: string
                 default: ''
+              exercise_filters:
+                description: >
+                  Whether to exercise filter changes by cycling from current filter
+                  to third slot and back to original. Requires MTCS to be available.
+                type: boolean
+                default: false
+              filter_only:
+                description: >
+                  Whether to only exercise filters and skip image checks. When true,
+                  exercise_filters must also be true.
+                type: boolean
+                default: false
+              ignore:
+                description: >-
+                  CSCs from the LSSTCam or MTCS group to ignore in status check.
+                  Name must match those in self.lsstcam.components or
+                  self.mtcs.components, e.g.; mtrotator, mtmount,
+                  mtheaderservice, etc. Note: when exercising filters, do not
+                  ignore mtrotator as it is required for filter changes.
+                type: array
+                items:
+                  type: string
             additionalProperties: false
         """
         return yaml.safe_load(schema_yaml)
@@ -113,18 +147,59 @@ class LsstCamCheckout(salobj.BaseScript):
         ----------
         config : dict
             Script configuration dictionary, as defined by the schema.
+
+        Raises
+        ------
+        ValueError
+            If filter_only is True but exercise_filters is False.
         """
+        # Validate parameter combinations
+        if config.get("filter_only", False) and not config.get(
+            "exercise_filters", False
+        ):
+            raise ValueError("filter_only=True requires exercise_filters=True")
+
+        # Initialize MTCS if filter exercise is requested
+        if config.get("exercise_filters", False):
+            if self.mtcs is None:
+                self.mtcs = MTCS(
+                    domain=self.domain,
+                    intended_usage=MTCSUsages.Slew | MTCSUsages.StateTransition,
+                    log=self.log,
+                )
+                await self.mtcs.start_task
+
+        # Initialize LSSTCam if not already done
         if self.lsstcam is None:
             self.lsstcam = LSSTCam(
                 domain=self.domain,
-                intended_usage=LSSTCamUsages.TakeImageFull,
+                intended_usage=LSSTCamUsages.All,
                 log=self.log,
+                mtcs=self.mtcs,
             )
             await self.lsstcam.start_task
 
         self.program = config.get("program", "LSSTCAM-CHECKOUT")
         self.reason = config.get("reason", "daytime_checkout")
         self.note = config.get("note", "")
+        self.exercise_filters = config.get("exercise_filters", False)
+        self.filter_only = config.get("filter_only", False)
+
+        # Handle ignore parameter for component status checks
+        if "ignore" in config:
+            ignore_components = config["ignore"]
+
+            # Validate that mtrotator is not ignored when exercising filters
+            if self.exercise_filters and "mtrotator" in ignore_components:
+                raise ValueError(
+                    "Cannot ignore 'mtrotator' when exercise_filters=True. "
+                    "The rotator is required for filter changes."
+                )
+
+            # Apply ignore settings to components
+            self.lsstcam.disable_checks_for_components(components=ignore_components)
+            if self.exercise_filters and self.mtcs is not None:
+                self.mtcs.disable_checks_for_components(components=ignore_components)
 
     def set_metadata(self, metadata):
         """Set estimated duration and metadata for this script.
@@ -134,7 +209,12 @@ class LsstCamCheckout(salobj.BaseScript):
         metadata : lsst.ts.standardscripts.Metadata
             Metadata object to update.
         """
-        metadata.duration = 20
+        # Base duration for image checks; add time for filter exercise
+        base_duration = 120
+        if getattr(self, "exercise_filters", False):
+            base_duration += 120  # Add 60 seconds for filter changes
+
+        metadata.duration = base_duration
         metadata.instrument = "LSSTCam"
         metadata.filter = self.current_filter
         metadata.survey = self.program
@@ -146,18 +226,30 @@ class LsstCamCheckout(salobj.BaseScript):
         """
         await self.assert_feasibility()
         await self.log_setup_info()
-        await self.verify_bias_frame()
-        await self.verify_engtest_frame()
+
+        # Always perform image checks unless filter_only is True
+        if not self.filter_only:
+            await self.verify_bias_frame()
+            await self.verify_engtest_frame()
+
+        # Perform filter exercise if requested
+        if self.exercise_filters:
+            await self.exercise_filter_changes()
 
     async def assert_feasibility(self):
-        """Check that all required LSSTCam components are enabled and ready.
+        """Check that all required components are enabled and ready.
 
         Raises
         ------
         AssertionError
-            If any LSSTCam component is not enabled.
+            If any LSSTCam component is not enabled, or if MTCS is not
+            enabled when filter exercise is requested.
         """
         await self.lsstcam.assert_all_enabled()
+
+        # Also check MTCS if filter exercise is requested
+        if self.exercise_filters:
+            await self.mtcs.assert_all_enabled()
 
     async def log_setup_info(self):
         """Log current instrument configuration.
@@ -266,7 +358,6 @@ class LsstCamCheckout(salobj.BaseScript):
 
         This method collects all ingestion events for the specified obsid
         and verifies that all raft/sensor combinations have statusCode == 0.
-        For LSSTCam, this means checking all 189 raft/sensor combinations.
 
         Parameters
         ----------
@@ -344,3 +435,70 @@ class LsstCamCheckout(salobj.BaseScript):
             f"Successfully verified ingestion of {len(ingestion_events)} raft/sensor "
             f"combinations for obsid {expected_obsid} at {ingest_event_time} UT"
         )
+
+    async def exercise_filter_changes(self):
+        """Exercise the filter wheel by cycling through filters.
+
+        Cycles from the current filter to the third filter slot and back
+        to the original filter to verify filter change mechanisms.
+
+        Raises
+        ------
+        RuntimeError
+            If any filter change fails or if the filter wheel state is invalid.
+        """
+        await self.checkpoint("Exercising Filter Changes")
+
+        if self.current_filter is None:
+            raise RuntimeError(
+                "Current filter is unknown - cannot exercise filter changes"
+            )
+
+        # Get available filters
+        try:
+            available_filters = await self.lsstcam.get_available_filters()
+            self.log.info(f"Available filters: {available_filters}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to get available filters: {e}")
+
+        # Determine target filter (third slot)
+        target_filter = available_filters[2]  # Third slot (0-indexed)
+        self.log.info(
+            f"Will cycle: {self.current_filter} -> {target_filter} -> {self.current_filter}"
+        )
+
+        # First filter change: current -> third slot
+        try:
+            self.log.info(
+                f"Changing filter from {self.current_filter} to {target_filter}"
+            )
+            await self.mtcs.change_filter(target_filter)
+            self.log.info(f"Successfully changed filter to {target_filter}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to change filter to {target_filter}: {e}")
+
+        # Second filter change: third slot -> original
+        try:
+            self.log.info(
+                f"Changing filter from {target_filter} back to {self.current_filter}"
+            )
+            await self.mtcs.change_filter(self.current_filter)
+            self.log.info(f"Successfully changed filter back to {self.current_filter}")
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to change filter back to {self.current_filter}: {e}"
+            )
+
+        # Verify final filter state
+        try:
+            final_filter = await self.lsstcam.get_current_filter()
+            if final_filter != self.current_filter:
+                raise RuntimeError(
+                    f"Filter exercise failed - expected {self.current_filter}, "
+                    f"got {final_filter}"
+                )
+            self.log.info(
+                f"Filter exercise completed successfully - filter is {final_filter}"
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to verify final filter state: {e}")
