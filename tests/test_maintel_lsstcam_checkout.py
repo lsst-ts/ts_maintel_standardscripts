@@ -39,6 +39,7 @@ class TestLsstCamCheckout(
         self.ingest_event_status = 0
         self.current_filter = "u"
         self.available_filters = ["u", "g", "r", "i", "z"]
+
         # Track expected obsids for each exposure
         self.expected_bias_obsid = "MC_O_20250101_000001"
         self.expected_engtest_obsid = "MC_O_20250101_000002"
@@ -331,7 +332,6 @@ class TestLsstCamCheckout(
                 await self.run_script()
 
             # Verify bias was taken but engtest was not
-            # (failure happened during bias verification)
             self.script.lsstcam.take_bias.assert_awaited_once()
             self.script.lsstcam.take_engtest.assert_not_awaited()
 
@@ -341,7 +341,7 @@ class TestLsstCamCheckout(
             await self.configure_script()
 
             # Set up failed ingestion status
-            self.ingest_event_status = 1  # Non-zero status indicates failure
+            self.ingest_event_status = 1
 
             with pytest.raises(AssertionError):
                 await self.run_script()
