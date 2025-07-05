@@ -21,7 +21,6 @@
 
 import asyncio
 import contextlib
-import time
 import types
 import unittest
 from unittest.mock import patch
@@ -38,10 +37,11 @@ class TestLsstCamCheckout(
     def setUp(self) -> None:
         # Test data for OODS ingestion events
         self.ingest_event_status = 0
-        self.ingest_time = time.time()
-        self.expected_obsid = "MC_O_20250101_000001"
-        self.current_filter = "r"
+        self.current_filter = "u"
         self.available_filters = ["u", "g", "r", "i", "z"]
+        # Track expected obsids for each exposure
+        self.expected_bias_obsid = "MC_O_20250101_000001"
+        self.expected_engtest_obsid = "MC_O_20250101_000002"
         return super().setUp()
 
     async def basic_make_script(self, index):
@@ -58,17 +58,37 @@ class TestLsstCamCheckout(
         return (self.script,)
 
     async def get_mtoods_ingest_event(self, flush, timeout):
-        """Mock OODS ingestion events - return single event per call"""
+        """Mock OODS ingestion events - return event for expected obsid"""
         if flush:
             await asyncio.sleep(timeout / 2.0)
-        # Return a representative raft/sensor event
+
+        # Use current time to avoid stale event warnings
+        current_time = utils.current_tai()
+
+        # Return an event for whichever obsid is currently being checked
+        # Script sets self.current_expected_obsid when checking for ingestion
+        obsid = getattr(self, "current_expected_obsid", self.expected_bias_obsid)
+
+        # Track how many events we've returned for this obsid
+        event_count_key = f"event_count_{obsid}"
+        current_count = getattr(self, event_count_key, 0)
+
+        # Return a reasonable number of events to simulate multiple raft/sensor
+        # combinations but then raise TimeoutError to stop the collection loop
+        if current_count >= 5:  # Return 5 events then timeout to end collection
+            raise asyncio.TimeoutError("No more events")
+
+        # Increment counter
+        setattr(self, event_count_key, current_count + 1)
+
+        # Return a representative raft/sensor event with different IDs
         return types.SimpleNamespace(
             statusCode=self.ingest_event_status,
-            private_sndStamp=self.ingest_time,
-            obsid=self.expected_obsid,
-            raft="R00",
-            sensor="S00",
-            description="Success",
+            private_sndStamp=current_time,
+            obsid=obsid,
+            raft=f"R{current_count:02d}",
+            sensor=f"S{current_count:02d}",
+            description="file ingested",
         )
 
     @contextlib.asynccontextmanager
@@ -90,13 +110,29 @@ class TestLsstCamCheckout(
         self.script.lsstcam.assert_all_enabled = unittest.mock.AsyncMock()
         self.script.lsstcam.disable_checks_for_components = unittest.mock.Mock()
 
-        # Mock OODS remote
         self.script.lsstcam.rem = types.SimpleNamespace(
-            mtoods=types.SimpleNamespace(evt_imageInOODS=unittest.mock.AsyncMock()),
+            mtoods=unittest.mock.AsyncMock(),
         )
-        self.script.lsstcam.rem.mtoods.evt_imageInOODS.flush = unittest.mock.Mock()
-        self.script.lsstcam.rem.mtoods.evt_imageInOODS.next = unittest.mock.AsyncMock(
-            side_effect=self.get_mtoods_ingest_event
+        self.script.lsstcam.rem.mtoods.configure_mock(
+            **{
+                "evt_imageInOODS.next.side_effect": self.get_mtoods_ingest_event,
+                "evt_imageInOODS.flush": unittest.mock.Mock(),
+            }
+        )
+        # Patch the _verify_image_ingestion method to set expected obsid
+        original_verify = self.script._verify_image_ingestion
+
+        async def patched_verify(expected_obsid):
+            # Set the obsid that our mock should return
+            self.current_expected_obsid = expected_obsid
+            # Reset event counter for this obsid
+            event_count_key = f"event_count_{expected_obsid}"
+            setattr(self, event_count_key, 0)
+            return await original_verify(expected_obsid)
+
+        # Create a mock that wraps our patched function
+        self.script._verify_image_ingestion = unittest.mock.AsyncMock(
+            side_effect=patched_verify
         )
 
         yield
@@ -195,8 +231,19 @@ class TestLsstCamCheckout(
             self.script.lsstcam.take_engtest.assert_awaited_once()
             self.script.lsstcam.assert_all_enabled.assert_called_once()
 
+            # Verify image ingestion was called twice (once for each image)
+            expected_calls = [
+                unittest.mock.call(expected_obsid=self.expected_bias_obsid),
+                unittest.mock.call(expected_obsid=self.expected_engtest_obsid),
+            ]
+            self.script._verify_image_ingestion.assert_has_calls(expected_calls)
+
     async def test_run_with_filter_exercise(self):
         """Test checkout with filter exercise"""
+
+        exercise_filters = True
+        filter_only = False
+
         async with self.make_script(), self.setup_mocks():
             mock_mtcs = unittest.mock.AsyncMock()
             mock_mtcs.start_task = utils.make_done_future()
@@ -204,11 +251,20 @@ class TestLsstCamCheckout(
             mock_mtcs.change_filter = unittest.mock.AsyncMock()
             mock_mtcs.disable_checks_for_components = unittest.mock.Mock()
 
+            # Mock random.choice to return a predictable but different filter
+            expected_intermediate_filter = "g"
+
             with patch(
                 "lsst.ts.maintel.standardscripts.daytime_checkout.lsstcam_checkout.MTCS",
                 return_value=mock_mtcs,
+            ), patch(
+                "lsst.ts.maintel.standardscripts.daytime_checkout.lsstcam_checkout.random.choice",
+                return_value=expected_intermediate_filter,
             ):
-                await self.configure_script(exercise_filters=True)
+                await self.configure_script(
+                    exercise_filters=exercise_filters,
+                    filter_only=filter_only,
+                )
                 self.script.mtcs = mock_mtcs
 
                 await self.run_script()
@@ -219,10 +275,10 @@ class TestLsstCamCheckout(
                 self.script.lsstcam.assert_all_enabled.assert_called_once()
                 self.script.mtcs.assert_all_enabled.assert_called_once()
 
-                # Verify filter changes (current -> third -> original)
+                # Verify filter changes (current -> expected -> original)
                 expected_calls = [
-                    unittest.mock.call(self.available_filters[2]),  # Third filter
-                    unittest.mock.call(self.current_filter),  # Back to original
+                    unittest.mock.call(expected_intermediate_filter),
+                    unittest.mock.call(self.current_filter),
                 ]
                 self.script.mtcs.change_filter.assert_has_calls(expected_calls)
 
@@ -235,9 +291,15 @@ class TestLsstCamCheckout(
             mock_mtcs.change_filter = unittest.mock.AsyncMock()
             mock_mtcs.disable_checks_for_components = unittest.mock.Mock()
 
+            # Mock random.choice to return a predictable but different filter
+            expected_intermediate_filter = "r"  # Different from current "u"
+
             with patch(
                 "lsst.ts.maintel.standardscripts.daytime_checkout.lsstcam_checkout.MTCS",
                 return_value=mock_mtcs,
+            ), patch(
+                "lsst.ts.maintel.standardscripts.daytime_checkout.lsstcam_checkout.random.choice",
+                return_value=expected_intermediate_filter,
             ):
                 await self.configure_script(exercise_filters=True, filter_only=True)
                 self.script.mtcs = mock_mtcs
@@ -248,8 +310,12 @@ class TestLsstCamCheckout(
                 self.script.lsstcam.take_bias.assert_not_awaited()
                 self.script.lsstcam.take_engtest.assert_not_awaited()
 
-                # Verify filter exercise was called
-                self.script.mtcs.change_filter.assert_called()
+                # Verify filter exercise was called with expected sequence
+                expected_calls = [
+                    unittest.mock.call(expected_intermediate_filter),
+                    unittest.mock.call(self.current_filter),
+                ]
+                self.script.mtcs.change_filter.assert_has_calls(expected_calls)
 
     async def test_run_script_with_ingest_failure(self):
         """Test script with OODS ingestion failure"""
@@ -257,11 +323,11 @@ class TestLsstCamCheckout(
             await self.configure_script()
 
             # Mock timeout error for OODS ingestion
-            self.script.lsstcam.rem.mtoods.evt_imageInOODS.next = (
-                unittest.mock.AsyncMock(side_effect=asyncio.TimeoutError)
+            self.script.lsstcam.rem.mtoods.configure_mock(
+                **{"evt_imageInOODS.next.side_effect": asyncio.TimeoutError}
             )
 
-            with pytest.raises(RuntimeError, match="No ingestion events received"):
+            with pytest.raises(AssertionError):
                 await self.run_script()
 
             # Verify bias was taken but engtest was not
@@ -277,35 +343,18 @@ class TestLsstCamCheckout(
             # Set up failed ingestion status
             self.ingest_event_status = 1  # Non-zero status indicates failure
 
-            with pytest.raises(RuntimeError, match="Image ingestion failed"):
+            with pytest.raises(AssertionError):
                 await self.run_script()
 
             self.script.lsstcam.take_bias.assert_awaited_once()
             self.script.lsstcam.take_engtest.assert_not_awaited()
 
-    async def test_filter_exercise_insufficient_filters(self):
-        """Test filter exercise with insufficient filters"""
-        async with self.make_script(), self.setup_mocks():
-            mock_mtcs = unittest.mock.AsyncMock()
-            mock_mtcs.start_task = utils.make_done_future()
-            mock_mtcs.assert_all_enabled = unittest.mock.AsyncMock()
-            mock_mtcs.disable_checks_for_components = unittest.mock.Mock()
-
-            # Set up insufficient filters
-            self.available_filters = ["u", "g"]  # Only 2 filters
-
-            with patch(
-                "lsst.ts.maintel.standardscripts.daytime_checkout.lsstcam_checkout.MTCS",
-                return_value=mock_mtcs,
-            ):
-                await self.configure_script(exercise_filters=True, filter_only=True)
-                self.script.mtcs = mock_mtcs
-
-                with pytest.raises(RuntimeError, match="Need at least 3 filters"):
-                    await self.run_script()
-
     async def test_filter_exercise_change_failure(self):
         """Test filter exercise with filter change failure"""
+
+        exercise_filters = True
+        filter_only = True
+
         async with self.make_script(), self.setup_mocks():
             mock_mtcs = unittest.mock.AsyncMock()
             mock_mtcs.start_task = utils.make_done_future()
@@ -315,12 +364,20 @@ class TestLsstCamCheckout(
             )
             mock_mtcs.disable_checks_for_components = unittest.mock.Mock()
 
+            # Mock random.choice to return a predictable but different filter
+            expected_intermediate_filter = "i"
+
             with patch(
                 "lsst.ts.maintel.standardscripts.daytime_checkout.lsstcam_checkout.MTCS",
                 return_value=mock_mtcs,
+            ), patch(
+                "lsst.ts.maintel.standardscripts.daytime_checkout.lsstcam_checkout.random.choice",
+                return_value=expected_intermediate_filter,
             ):
-                await self.configure_script(exercise_filters=True, filter_only=True)
+                await self.configure_script(
+                    exercise_filters=exercise_filters, filter_only=filter_only
+                )
                 self.script.mtcs = mock_mtcs
 
-                with pytest.raises(RuntimeError, match="Failed to change filter"):
+                with pytest.raises(AssertionError):
                     await self.run_script()
