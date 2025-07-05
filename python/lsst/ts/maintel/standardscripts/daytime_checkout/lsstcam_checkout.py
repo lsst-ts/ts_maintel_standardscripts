@@ -99,23 +99,23 @@ class LsstCamCheckout(salobj.BaseScript):
         """Return the JSON schema for configuring this script."""
         schema_yaml = """
             $schema: http://json-schema.org/draft-07/schema#
-            $id: https://github.com/lsst-ts/ts_maintel_standardscripts/lsstcam_checkout.yaml
+            $id: https://github.com/lsst-ts/ts_maintel_standardscripts/daytime/lsstcam_checkout.yaml
             title: LsstCamCheckout v1
             description: Configuration for LsstCamCheckout daytime script.
             type: object
             properties:
               program:
-                description: Program name for image headers.
+                description: Optional name of the program this data belongs to.
                 type: string
-                default: LSSTCAM-CHECKOUT
+                default: ""
               reason:
-                description: Short tag-like string used for disambiguation (image header).
+                description: Optional reason for taking the data.
                 type: string
                 default: daytime_checkout
               note:
-                description: Observer note to be added to the image header.
+                description: A descriptive note about the image being taken.
                 type: string
-                default: ''
+                default: ""
               exercise_filters:
                 description: >
                   Whether to exercise filter changes by cycling from current filter
@@ -182,7 +182,7 @@ class LsstCamCheckout(salobj.BaseScript):
             )
             await self.lsstcam.start_task
 
-        self.program = getattr(config, "program", "LSSTCAM-CHECKOUT")
+        self.program = getattr(config, "program", "")
         self.reason = getattr(config, "reason", "daytime_checkout")
         self.note = getattr(config, "note", "")
         self.exercise_filters = getattr(config, "exercise_filters", False)
