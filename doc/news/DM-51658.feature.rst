@@ -1,0 +1,1 @@
+Added a `daytime/lsstcam_checkout.py` script to verify camera readiness by taking bias and engineering frames, checking MTOODS ingestion, and optionally exercising filter changes.
