@@ -1,0 +1,2 @@
+Added ``daytime_checkout/lsstcam_checkout.py`` as a specialization of ``BaseLsstCamCheckout``.
+It takes two 30-second DARK exposures to perform the daily LSSTCam acquisition and OODS ingestion checkout.
