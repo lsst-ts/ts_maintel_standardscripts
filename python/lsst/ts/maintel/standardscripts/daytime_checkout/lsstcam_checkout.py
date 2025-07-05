@@ -22,6 +22,7 @@
 __all__ = ["LsstCamCheckout"]
 
 import asyncio
+import random
 
 import yaml
 from lsst.ts import salobj, utils
@@ -57,6 +58,7 @@ class LsstCamCheckout(salobj.BaseScript):
     -----
     **Checkpoints**
 
+    - "Checking Component Status": Before verifying component enablement.
     - "Checking LSSTCam Setup": Logs filter installed and available filters.
     - "Bias Frame Verification": Before taking bias frame.
     - "Engineering Frame Verification": Before taking engineering frames.
@@ -72,9 +74,10 @@ class LsstCamCheckout(salobj.BaseScript):
     raft/sensor combinations having successful status.
 
     Optionally, the script can exercise the filter wheel by cycling from the
-    current filter to the third filter slot and back to the original filter.
-    This requires MTCS to be available and enabled. The script can also be
-    configured to only perform the filter exercise and skip the image checks.
+    current filter to a randomly selected different filter and back to the
+    original filter. This requires MTCS to be available and enabled. The script
+    can also be configured to only perform the filter exercise and skip the
+    image checks.
 
     Individual LSSTCam or MTCS components can be ignored in status checks using
     the 'ignore' parameter. However, when exercising filters, the mtrotator
@@ -88,7 +91,6 @@ class LsstCamCheckout(salobj.BaseScript):
         )
         self.lsstcam = None
         self.mtcs = None
-        self.timeout = STD_TIMEOUT
         self.ingestion_timeout = INGESTION_TIMEOUT
         self.current_filter = None  # Store current filter discovered during checkout
 
@@ -117,7 +119,8 @@ class LsstCamCheckout(salobj.BaseScript):
               exercise_filters:
                 description: >
                   Whether to exercise filter changes by cycling from current filter
-                  to third slot and back to original. Requires MTCS to be available.
+                  to a randomly selected different filter and back to original.
+                  Requires MTCS to be available.
                 type: boolean
                 default: false
               filter_only:
@@ -245,6 +248,8 @@ class LsstCamCheckout(salobj.BaseScript):
             If any LSSTCam component is not enabled, or if MTCS is not
             enabled when filter exercise is requested.
         """
+        await self.checkpoint("Checking Component Status")
+
         await self.lsstcam.assert_all_enabled()
 
         # Also check MTCS if filter exercise is requested
@@ -293,9 +298,6 @@ class LsstCamCheckout(salobj.BaseScript):
         self.lsstcam.rem.mtoods.evt_imageInOODS.flush()
         exposure_ids = await self.lsstcam.take_bias(
             nbias=1,
-            program=self.program,
-            reason=self.reason,
-            note=self.note,
         )
 
         # Verify ingestion of the bias image taken
@@ -327,7 +329,7 @@ class LsstCamCheckout(salobj.BaseScript):
         # Take the engineering test images and get the exposure IDs
         exposure_ids = await self.lsstcam.take_engtest(
             n=1,
-            exptime=2,
+            exptime=1,
             program=self.program,
             reason=self.reason,
             note=self.note,
@@ -380,7 +382,7 @@ class LsstCamCheckout(salobj.BaseScript):
         while utils.current_tai() - start_time < self.ingestion_timeout:
             try:
                 ingest_event = await self.lsstcam.rem.mtoods.evt_imageInOODS.next(
-                    flush=False, timeout=15  # Short timeout for individual events
+                    flush=False, timeout=STD_TIMEOUT
                 )
 
                 # Check telemetry age
@@ -437,10 +439,10 @@ class LsstCamCheckout(salobj.BaseScript):
         )
 
     async def exercise_filter_changes(self):
-        """Exercise the filter wheel by cycling through filters.
+        """Exercise the filter exchanger system by cycling through filters.
 
-        Cycles from the current filter to the third filter slot and back
-        to the original filter to verify filter change mechanisms.
+        Cycles from the current filter to a randomly selected different filter
+        and back to the original one to verify filter change mechanisms.
 
         Raises
         ------
@@ -461,13 +463,16 @@ class LsstCamCheckout(salobj.BaseScript):
         except Exception as e:
             raise RuntimeError(f"Failed to get available filters: {e}")
 
-        # Determine target filter (third slot)
-        target_filter = available_filters[2]  # Third slot (0-indexed)
+        # Determine target filter (randomly select different from current)
+        other_filters = [f for f in available_filters if f != self.current_filter]
+
+        # Randomly select from the available alternatives
+        target_filter = random.choice(other_filters)
         self.log.info(
             f"Will cycle: {self.current_filter} -> {target_filter} -> {self.current_filter}"
         )
 
-        # First filter change: current -> third slot
+        # First filter change: current -> random selected
         try:
             self.log.info(
                 f"Changing filter from {self.current_filter} to {target_filter}"
@@ -477,7 +482,7 @@ class LsstCamCheckout(salobj.BaseScript):
         except Exception as e:
             raise RuntimeError(f"Failed to change filter to {target_filter}: {e}")
 
-        # Second filter change: third slot -> original
+        # Second filter change: random selected -> original
         try:
             self.log.info(
                 f"Changing filter from {target_filter} back to {self.current_filter}"
