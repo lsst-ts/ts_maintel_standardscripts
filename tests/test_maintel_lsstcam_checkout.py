@@ -323,9 +323,11 @@ class TestLsstCamCheckout(
         async with self.make_script(), self.setup_mocks():
             await self.configure_script()
 
-            # Mock timeout error for OODS ingestion
-            self.script.lsstcam.rem.mtoods.configure_mock(
-                **{"evt_imageInOODS.next.side_effect": asyncio.TimeoutError}
+            # Simulates a timeout condition in ingestion verification
+            self.script._verify_image_ingestion = unittest.mock.AsyncMock(
+                side_effect=RuntimeError(
+                    "No ingestion events received for expected obsid"
+                )
             )
 
             with pytest.raises(AssertionError):
