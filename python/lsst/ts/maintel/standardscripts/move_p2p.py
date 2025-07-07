@@ -62,33 +62,45 @@ class MoveP2P(BaseBlockScript):
         $schema: http://json-schema.org/draft-07/schema#
         $id: https://github.com/lsst-ts/ts_standardscripts/maintel/move_p2p.py
         title: MoveP2P v1
-        description: Configuration for BaseTrackTarget.
+        description: Configuration for MoveP2P.
         type: object
         additionalProperties: false
         properties:
             az:
-                description: Azimuth (deg). Must be used alongside el.
+                description: >-
+                  Azimuth (deg). Intended to be used alongside `el`. If no
+                  value is provided and `el` is specified, the current azimuth
+                  will be used with the provided elevation.
                 oneOf:
                     - type: number
                     - type: array
                       values:
                         type: number
             el:
-                description: Elevation (deg). Must be used alongside az.
+                description: >-
+                  Elevation (deg). Intented to be used alongside `az`. If no
+                  value is provided and `az` is specified, the current
+                  elevation will be used with the provided azimuth.
                 oneOf:
                     - type: number
                     - type: array
                       values:
                         type: number
             ra:
-                description: Right ascension (hour). Must be used alongside dec.
+                description: >-
+                  Right ascension (hour). Intended to be used alongside `dec`.
+                  If no value is provided and `dec` is specified, the current
+                  right ascension will be used with the provided declination.
                 oneOf:
                     - type: number
                     - type: array
                       values:
                         type: number
             dec:
-                description: Declination (deg). Must be used alongside ra.
+                description: >-
+                  Declination (deg). Intended to be used alongside `ra`. If no
+                  value is provided and `ra` is specified, the current
+                  declination will be used with the provided right ascension.
                 oneOf:
                     - type: number
                     - type: array
@@ -111,14 +123,18 @@ class MoveP2P(BaseBlockScript):
                 description: Timeout for move command.
                 type: number
                 default: 120.0
-        oneOf:
-            - required:
-                - az
-                - el
-            - required:
-                - ra
-                - dec
-        """
+        allOf:
+            - not:
+                required: [az, dec]
+            - not:
+                required: [ra, el]
+            - anyOf:
+                - required: [az]
+                - required: [el]
+                - required: [ra]
+                - required: [dec]
+
+         """
         schema_dict = yaml.safe_load(schema_yaml)
 
         base_schema_dict = super().get_schema()
@@ -133,23 +149,72 @@ class MoveP2P(BaseBlockScript):
     async def configure(self, config):
         """Configure script."""
 
-        if hasattr(config, "az") and hasattr(config, "el"):
+        self.config = config
+
+        await self.configure_tcs()
+
+        if hasattr(config, "az") or hasattr(config, "el"):
+            # Set coordinates
+            if not hasattr(config, "az"):
+                config.az = await self.get_current_azimuth()
+                self.log.info(
+                    f"No azimuth specified. Using current azimuth for grid: {config.az}"
+                )
+            elif not hasattr(config, "el"):
+                config.el = await self.get_current_elevation()
+                self.log.info(
+                    f"No elevation specified. Using current elevation for grid: {config.el}"
+                )
+            # Set grid
             az, el = format_grid(config.az, config.el)
             self.grid["azel"] = dict(az=az, el=el)
 
-        if hasattr(config, "ra") and hasattr(config, "dec"):
+        if hasattr(config, "ra") or hasattr(config, "dec"):
+            if not (hasattr(config, "ra") and hasattr(config, "dec")):
+                current_ra, current_dec = await self.get_current_radec()
+            # Set coordinates
+            if not hasattr(config, "ra"):
+                config.ra = current_ra
+                self.log.info(
+                    f"No right ascension specified. Using current right ascension for grid: {current_ra}"
+                )
+            elif not hasattr(config, "dec"):
+                config.dec = current_dec
+                self.log.info(
+                    f"No declination specified. Using current declination for grid: {current_dec}"
+                )
+            # Set grid
             ra, dec = format_grid(config.ra, config.dec)
             self.grid["radec"] = dict(ra=ra, dec=dec)
 
         self.pause_for = config.pause_for
         self.move_timeout = config.move_timeout
 
-        await self.configure_tcs()
-
         if hasattr(config, "ignore"):
             self.mtcs.disable_checks_for_components(components=config.ignore)
 
         await super().configure(config=config)
+
+    async def get_current_azimuth(self):
+        mount_az = await self.mtcs.rem.mtmount.tel_azimuth.next(
+            flush=True,
+            timeout=self.mtcs.fast_timeout,
+        )
+        return mount_az.actualPosition
+
+    async def get_current_elevation(self):
+        mount_el = await self.mtcs.rem.mtmount.tel_elevation.next(
+            flush=True,
+            timeout=self.mtcs.fast_timeout,
+        )
+        return mount_el.actualPosition
+
+    async def get_current_radec(self):
+        az, el = await asyncio.gather(
+            self.get_current_azimuth(), self.get_current_elevation()
+        )
+        radec = self.mtcs.radec_from_azel(az=az, el=el)
+        return radec.ra.hour, radec.dec.degree
 
     def set_metadata(self, metadata: type_hints.BaseMsgType) -> None:
         """Set script metadata."""
