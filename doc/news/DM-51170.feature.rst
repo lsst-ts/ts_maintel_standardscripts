@@ -1,0 +1,1 @@
+Allow ``move_p2p.py`` and ``point_azel.py`` scripts to receive only one axis.
