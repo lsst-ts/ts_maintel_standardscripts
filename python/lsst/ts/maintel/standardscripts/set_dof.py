@@ -163,8 +163,14 @@ class SetDOF(ApplyDOF):
         )
 
         if not state.empty:
-            state = state.iloc[[-1]]
-            return state.values.squeeze()
+            for i in range(len(state))[::-1]:
+                state = state.iloc[[i]].values.squeeze()
+                if not np.any(np.isnan(state)):
+                    return state
+            else:
+                raise RuntimeError(
+                    f"Could not retrieve any valid state for day={self.day} seq={self.seq}."
+                )
         else:
             self.log.warning("No state found.")
             return np.zeros(50)

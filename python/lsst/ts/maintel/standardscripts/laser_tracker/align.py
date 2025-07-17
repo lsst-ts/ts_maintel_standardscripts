@@ -305,6 +305,7 @@ class Align(BaseBlockScript):
             rotation_angle = await self.mtcs.rem.mtrotator.tel_rotation.aget(
                 timeout=self.TIMEOUT_STD
             )
+            self.mtcs.check.mtdome = False
             await self.mtcs.point_azel(
                 az=azimuth.actualPosition + dazimuth,
                 el=elevation.actualPosition + delevation,
