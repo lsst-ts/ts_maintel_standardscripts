@@ -32,6 +32,9 @@ class TestPointAzEl(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
     async def basic_make_script(self, index):
         self.script = PointAzEl(index=index)
 
+        self.current_azimuth = 90.0
+        self.current_elevation = 45.0
+
         return (self.script,)
 
     @contextlib.asynccontextmanager
@@ -44,27 +47,40 @@ class TestPointAzEl(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
             self.script.mtcs.point_azel = unittest.mock.AsyncMock()
             self.script.mtcs.stop_tracking = unittest.mock.AsyncMock()
             self.script.mtcs.disable_checks_for_components = unittest.mock.Mock()
-
+            self.script.mtcs.configure_mock(
+                **{
+                    "rem.mtmount.tel_azimuth.next.return_value": unittest.mock.Mock(
+                        actualPosition=self.current_azimuth
+                    ),
+                    "rem.mtmount.tel_elevation.next.return_value": unittest.mock.Mock(
+                        actualPosition=self.current_elevation
+                    ),
+                }
+            )
             yield
+
+    async def test_config_az_no_el(self) -> None:
+        async with self.make_dry_script():
+            await self.configure_script(az=0.0)
+
+        self.script.mtcs.rem.mtmount.tel_elevation.next.assert_awaited_once()
+
+        assert self.script.config.az == 0.0
+        assert self.script.config.el == self.current_elevation
+
+    async def test_config_el_no_az(self) -> None:
+        async with self.make_dry_script():
+            await self.configure_script(el=0.0)
+
+        self.script.mtcs.rem.mtmount.tel_azimuth.next.assert_awaited_once()
+
+        assert self.script.config.el == 0.0
+        assert self.script.config.az == self.current_azimuth
 
     async def test_config_fail_no_defaults(self) -> None:
         async with self.make_dry_script():
             with pytest.raises(salobj.ExpectedError):
                 await self.configure_script()
-
-    async def test_config_fail_az_no_el(self) -> None:
-        async with self.make_dry_script():
-            with pytest.raises(
-                salobj.ExpectedError, match="'el' is a required property"
-            ):
-                await self.configure_script(az=0.0)
-
-    async def test_config_fail_el_no_az(self) -> None:
-        async with self.make_dry_script():
-            with pytest.raises(
-                salobj.ExpectedError, match="'az' is a required property"
-            ):
-                await self.configure_script(el=0.0)
 
     async def test_configure_fail_invalid_el_min(self):
         az = 0.0

@@ -48,6 +48,20 @@ class PointAzEl(BasePointAzEl):
     def tcs(self):
         return self.mtcs
 
+    async def get_current_azimuth(self):
+        mount_az = await self.mtcs.rem.mtmount.tel_azimuth.next(
+            flush=True,
+            timeout=self.mtcs.fast_timeout,
+        )
+        return mount_az.actualPosition
+
+    async def get_current_elevation(self):
+        mount_el = await self.mtcs.rem.mtmount.tel_elevation.next(
+            flush=True,
+            timeout=self.mtcs.fast_timeout,
+        )
+        return mount_el.actualPosition
+
     async def configure_tcs(self):
         """Handle creating MTCS object and waiting for remote to start."""
 
