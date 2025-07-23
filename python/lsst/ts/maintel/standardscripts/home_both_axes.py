@@ -25,7 +25,7 @@ import time
 
 import yaml
 from lsst.ts import salobj
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 
 
 class HomeBothAxes(salobj.BaseScript):
@@ -58,6 +58,7 @@ class HomeBothAxes(salobj.BaseScript):
         self.disable_m1m3_force_balance = False
         self.home_both_axes_timeout = 300.0  # timeout to home both MTMount axes.
         self.mtcs = None
+        self.final_home_position = None
 
     @classmethod
     def get_schema(cls):
@@ -75,13 +76,37 @@ class HomeBothAxes(salobj.BaseScript):
                     description: Disable m1m3 force balance?
                     type: boolean
                     default: false
+                final_home_position:
+                    description: >-
+                        Azimuth and Elevation position to home the axes at. If provided, the script will first
+                        home both axes at the current Az/El position of the MTMount, then slew to the provided
+                        az/el values in the final_home_position, and then home both axes a second time. If not
+                        provided, the script will only home the axes once at its current position.
+                    type: object
+                    required:
+                        - az
+                        - el
+                    properties:
+                        az:
+                            description: Azimuth to do final home at (deg).
+                            anyOf:
+                            - type: number
+                        el:
+                            description: Elevation to do final home at (deg).
+                            anyOf:
+                            - type: number
+                              minimum: 0
+                              maximum: 90
+
             additionalProperties: false
         """
         return yaml.safe_load(schema_yaml)
 
     async def configure(self, config):
         if self.mtcs is None:
-            self.mtcs = MTCS(domain=self.domain, log=self.log)
+            self.mtcs = MTCS(
+                domain=self.domain, intended_usage=MTCSUsages.Slew, log=self.log
+            )
             await self.mtcs.start_task
 
         if hasattr(config, "ignore_m1m3"):
@@ -93,16 +118,24 @@ class HomeBothAxes(salobj.BaseScript):
             )
         self.disable_m1m3_force_balance = config.disable_m1m3_force_balance
 
+        if hasattr(config, "final_home_position"):
+            self.final_home_position = config.final_home_position
+
+        if self.disable_m1m3_force_balance and (self.final_home_position is not None):
+            raise ValueError(
+                "Both 'disable_m1m3_force_balance' and 'final_home_position' are set. "
+                "These options are not intended to be used together."
+            )
+
     def set_metadata(self, metadata):
         metadata.duration = self.home_both_axes_timeout
 
     async def run(self):
-
         if self.disable_m1m3_force_balance:
             await self.checkpoint("Disable M1M3 balance system.")
             await self.mtcs.disable_m1m3_balance_system()
 
-        await self.checkpoint("Homing Both Axes")
+        await self.checkpoint("Homing Both Axes at current position")
         start_time = time.time()
         await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
             timeout=self.home_both_axes_timeout
@@ -115,3 +148,22 @@ class HomeBothAxes(salobj.BaseScript):
         if not self.disable_m1m3_force_balance:
             self.log.info("Enabling M1M3 balance system.")
             await self.mtcs.enable_m1m3_balance_system()
+
+        if self.final_home_position is not None:
+            await self.checkpoint("Slewing TMA to final home position")
+            await self.mtcs.point_azel(
+                az=self.final_home_position["az"],
+                el=self.final_home_position["el"],
+            )
+
+            await self.mtcs.stop_tracking()
+
+            await self.checkpoint("Homing Both Axes at final position")
+            start_time = time.time()
+            await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
+                timeout=self.home_both_axes_timeout
+            )
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+
+            self.log.info(f"Homing both axes took {elapsed_time:.2f} seconds")

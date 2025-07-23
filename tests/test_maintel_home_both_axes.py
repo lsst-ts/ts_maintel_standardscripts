@@ -20,7 +20,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from lsst.ts import standardscripts
 from lsst.ts.maintel.standardscripts import HomeBothAxes
@@ -42,6 +42,8 @@ class TestHomeBothAxes(
         self.script.mtcs.lower_m1m3 = unittest.mock.AsyncMock()
         self.script.mtcs.disable_m1m3_balance_system = unittest.mock.AsyncMock()
         self.script.mtcs.enable_m1m3_balance_system = unittest.mock.AsyncMock()
+        self.script.mtcs.point_azel = unittest.mock.AsyncMock()
+        self.script.mtcs.stop_tracking = unittest.mock.AsyncMock()
 
         return (self.script,)
 
@@ -70,7 +72,6 @@ class TestHomeBothAxes(
 
     async def test_deprecated_ignore_m1m3_usage(self):
         async with self.make_script():
-
             with patch.object(self.script.log, "warning") as mock_log_warning:
                 await self.configure_script(ignore_m1m3=True)
 
@@ -89,23 +90,22 @@ class TestHomeBothAxes(
                 timeout=self.script.home_both_axes_timeout
             )
 
-    async def ttest_deprecated_ignore_m1m3_usage(self):
+    async def test_run_with_final_home_position_enabled(self):
         async with self.make_script():
-
-            with self.assertWarns(DeprecationWarning) as cm:
-                await self.configure_script(ignore_m1m3=True)
-
-            self.assertIn(
-                "The 'ignore_m1m3' configuration property is deprecated and will be removed"
-                " in future releases. Please use 'disable_m1m3_force_balance' instead.",
-                str(cm.warning),
-            )
+            await self.configure_script(final_home_position={"az": 1, "el": 46})
 
             await self.run_script()
 
-            # Assert that homeBothAxes command was called
-            self.script.mtcs.rem.mtmount.cmd_homeBothAxes.start.assert_awaited_once_with(
-                timeout=self.script.home_both_axes_timeout
+            self.script.mtcs.point_azel.assert_awaited_once_with(
+                az=1,
+                el=46,
+            )
+
+            self.script.mtcs.rem.mtmount.cmd_homeBothAxes.start.assert_has_awaits(
+                [
+                    call(timeout=self.script.home_both_axes_timeout),
+                    call(timeout=self.script.home_both_axes_timeout),
+                ]
             )
 
 
