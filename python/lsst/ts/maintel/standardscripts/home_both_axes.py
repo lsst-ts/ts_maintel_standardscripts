@@ -154,6 +154,7 @@ class HomeBothAxes(salobj.BaseScript):
             await self.mtcs.point_azel(
                 az=self.final_home_position["az"],
                 el=self.final_home_position["el"],
+                wait_dome=False,
             )
 
             await self.mtcs.stop_tracking()
