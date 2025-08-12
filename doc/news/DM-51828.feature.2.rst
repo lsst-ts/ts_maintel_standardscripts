@@ -1,0 +1,1 @@
+Updated ``home_both_axes.py`` to add cleanup method that will stop tracking if script fails.
