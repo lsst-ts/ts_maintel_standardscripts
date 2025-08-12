@@ -21,10 +21,12 @@
 
 __all__ = ["HomeBothAxes"]
 
+import asyncio
 import time
 
 import yaml
 from lsst.ts import salobj
+from lsst.ts.idl.enums.Script import ScriptState
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 
 
@@ -154,6 +156,7 @@ class HomeBothAxes(salobj.BaseScript):
             await self.mtcs.point_azel(
                 az=self.final_home_position["az"],
                 el=self.final_home_position["el"],
+                wait_dome=False,
             )
 
             await self.mtcs.stop_tracking()
@@ -167,3 +170,18 @@ class HomeBothAxes(salobj.BaseScript):
             elapsed_time = end_time - start_time
 
             self.log.info(f"Homing both axes took {elapsed_time:.2f} seconds")
+
+    async def cleanup(self):
+        if self.state.state != ScriptState.STOPPING:
+            # abnormal termination
+            self.log.warning(
+                f"Terminating with state={self.state.state}: stop telescope."
+            )
+            try:
+                await self.mtcs.stop_tracking()
+            except asyncio.TimeoutError:
+                self.log.exception(
+                    "Stop tracking command timed out during cleanup procedure."
+                )
+            except Exception:
+                self.log.exception("Unexpected exception while stopping telescope.")

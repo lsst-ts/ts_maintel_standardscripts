@@ -99,6 +99,7 @@ class TestHomeBothAxes(
             self.script.mtcs.point_azel.assert_awaited_once_with(
                 az=1,
                 el=46,
+                wait_dome=False,
             )
 
             self.script.mtcs.rem.mtmount.cmd_homeBothAxes.start.assert_has_awaits(
