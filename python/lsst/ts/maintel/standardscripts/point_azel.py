@@ -21,7 +21,7 @@
 
 __all__ = ["PointAzEl"]
 
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts.base_point_azel import BasePointAzEl
 
 
@@ -67,7 +67,7 @@ class PointAzEl(BasePointAzEl):
 
         if self.mtcs is None:
             self.log.debug("Creating MTCS")
-            self.mtcs = MTCS(self.domain, log=self.log)
+            self.mtcs = MTCS(self.domain, log=self.log, intended_usage=MTCSUsages.Slew)
             await self.mtcs.start_task
 
     def set_metadata(self, metadata):
