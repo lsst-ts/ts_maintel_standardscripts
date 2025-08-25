@@ -1,1 +1,0 @@
-Update laser_tracker/align.py make sure ``MTCS`` ignore the ``MTDome`` when repositioning the telescope.

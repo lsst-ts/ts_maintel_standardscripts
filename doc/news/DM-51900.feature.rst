@@ -1,1 +1,0 @@
-In ``home_both_axes.py``, add new configurable option to re-home the axis at a provided az/el position.
