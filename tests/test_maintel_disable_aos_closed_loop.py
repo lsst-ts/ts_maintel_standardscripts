@@ -38,7 +38,7 @@ class TestDisableAOSClosedLoop(
             intended_usage=MTCSUsages.DryTest,
             log=self.script.log,
         )
-        self.script.mtcs.rem.mtaos = unittest.mock.AsyncMock()
+        self.script.mtcs.disable_aos_closed_loop = unittest.mock.AsyncMock()
 
         return (self.script,)
 
@@ -49,7 +49,7 @@ class TestDisableAOSClosedLoop(
 
             await self.run_script()
 
-            self.script.mtcs.rem.mtaos.cmd_stopClosedLoop.start.assert_awaited_once()
+            self.script.mtcs.disable_aos_closed_loop.assert_awaited_once()
 
 
 if __name__ == "__main__":

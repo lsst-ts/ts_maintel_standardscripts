@@ -21,7 +21,7 @@
 
 __all__ = ["PointAzEl"]
 
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts.base_point_azel import BasePointAzEl
 
 
@@ -48,12 +48,26 @@ class PointAzEl(BasePointAzEl):
     def tcs(self):
         return self.mtcs
 
+    async def get_current_azimuth(self):
+        mount_az = await self.mtcs.rem.mtmount.tel_azimuth.next(
+            flush=True,
+            timeout=self.mtcs.fast_timeout,
+        )
+        return mount_az.actualPosition
+
+    async def get_current_elevation(self):
+        mount_el = await self.mtcs.rem.mtmount.tel_elevation.next(
+            flush=True,
+            timeout=self.mtcs.fast_timeout,
+        )
+        return mount_el.actualPosition
+
     async def configure_tcs(self):
         """Handle creating MTCS object and waiting for remote to start."""
 
         if self.mtcs is None:
             self.log.debug("Creating MTCS")
-            self.mtcs = MTCS(self.domain, log=self.log)
+            self.mtcs = MTCS(self.domain, log=self.log, intended_usage=MTCSUsages.Slew)
             await self.mtcs.start_task
 
     def set_metadata(self, metadata):

@@ -29,6 +29,7 @@ from lsst.ts.maintel.standardscripts.m1m3 import CheckActuators
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts import BaseScriptTestCase
 from lsst.ts.xml.enums.MTM1M3 import BumpTest, DetailedStates
+from lsst.ts.xml.tables.m1m3 import force_actuator_from_id
 
 
 class FakeBumpTestValue:
@@ -72,6 +73,7 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
         self.script.mtcs.assert_liveliness = unittest.mock.AsyncMock()
         self.script.mtcs.assert_all_enabled = unittest.mock.AsyncMock()
         self.script.mtcs.assert_m1m3_detailed_state = unittest.mock.AsyncMock()
+        self.script.mtcs.wait_m1m3_actuator_in_testing_state = unittest.mock.AsyncMock()
 
         self.script.mtcs.get_m1m3_bump_test_status = unittest.mock.AsyncMock(
             side_effect=self.mock_get_m1m3_bump_test_status
@@ -83,6 +85,7 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                 "evt_detailedState.aget": self.get_m1m3_detailed_state,
             }
         )
+        self.script.mtcs.get_m1m3_actuator_to_test = self.get_m1m3_actuator_to_test
 
         self.bump_test_status = types.SimpleNamespace(
             testState=[BumpTest.NOTTESTED] * len(self.script.m1m3_actuator_ids)
@@ -95,6 +98,11 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
 
     async def get_m1m3_detailed_state(self, *args, **kwags):
         return types.SimpleNamespace(detailedState=DetailedStates.PARKED)
+
+    async def get_m1m3_actuator_to_test(self, actuators_to_test):
+        for actuator in actuators_to_test:
+            yield force_actuator_from_id(actuator)
+            await asyncio.sleep(0.5)
 
     # Side effects
     async def mock_test_bump(self, actuator_id, primary, secondary):

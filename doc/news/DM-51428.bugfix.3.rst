@@ -1,0 +1,1 @@
+Added protection against cancellations in ``m1m3/check_actuators.py``.

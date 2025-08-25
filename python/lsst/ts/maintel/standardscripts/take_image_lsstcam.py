@@ -22,6 +22,7 @@
 __all__ = ["TakeImageLSSTCam"]
 
 import yaml
+from lsst.ts import salobj
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.utils.roi_spec import ROISpec
@@ -134,6 +135,13 @@ class TakeImageLSSTCam(BaseTakeImage):
                           start_col:
                             type: number
                             description: The bottom-left column origin of the ROI.
+              ignore:
+                description: >-
+                  CSCs from the MTCS group to ignore in status check. Name must
+                  match those in self.mtcs.components_attr, e.g.; mtmount, mtptg.
+                type: array
+                items:
+                  type: string
             additionalProperties: false
         """
         schema_dict = yaml.safe_load(schema_yaml)
@@ -162,6 +170,9 @@ class TakeImageLSSTCam(BaseTakeImage):
 
             self.instrument_setup_time = self._lsstcam.filter_change_timeout
 
+        if hasattr(config, "ignore") and config.ignore:
+            self.mtcs.disable_checks_for_components(components=config.ignore)
+
         await super().configure(config=config)
 
     def get_instrument_name(self):
@@ -169,6 +180,44 @@ class TakeImageLSSTCam(BaseTakeImage):
 
     def get_instrument_configuration(self):
         return dict(filter=self.config.filter)
+
+    async def assert_feasibility(self):
+        if getattr(self.config, "image_type", None) != "FLAT":
+            return None
+
+        mtdometrajectory_ignored = not self.mtcs.check.mtdometrajectory
+        mtdome_ignored = not self.mtcs.check.mtdome
+
+        if not mtdometrajectory_ignored:
+            dome_trajectory_evt = (
+                await self.mtcs.rem.mtdometrajectory.evt_summaryState.aget(
+                    timeout=self.mtcs.long_timeout
+                )
+            )
+            dome_trajectory_summary_state = salobj.State(
+                dome_trajectory_evt.summaryState
+            )
+
+            if dome_trajectory_summary_state != salobj.State.ENABLED:
+                raise RuntimeError(
+                    "MTDomeTrajectory must be ENABLED before taking flats to ensure "
+                    "vignetting state is published. "
+                    f"Current state {dome_trajectory_summary_state.name}."
+                )
+
+        if not mtdome_ignored:
+            dome_evt = await self.mtcs.rem.mtdome.evt_summaryState.aget(
+                timeout=self.mtcs.long_timeout
+            )
+            dome_summary_state = salobj.State(dome_evt.summaryState)
+
+            acceptable_mtdome_state = {salobj.State.DISABLED, salobj.State.ENABLED}
+
+            if dome_summary_state not in acceptable_mtdome_state:
+                raise RuntimeError(
+                    f"MTDome must be in {acceptable_mtdome_state} before taking flats, "
+                    f"current state {dome_summary_state.name}."
+                )
 
     async def run(self):
         if (roi_spec := getattr(self.config, "roi_spec", None)) is not None:

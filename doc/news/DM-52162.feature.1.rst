@@ -1,0 +1,1 @@
+Limited the resources allocated by ``MTCS`` in ``point_azel.py``.

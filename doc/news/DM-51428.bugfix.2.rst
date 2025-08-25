@@ -1,0 +1,1 @@
+Fixed targets for laser tracker align script.

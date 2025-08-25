@@ -22,7 +22,7 @@
 __all__ = ["MoveRotator"]
 
 import yaml
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
 
 
@@ -120,6 +120,7 @@ class MoveRotator(BaseBlockScript):
             self.mtcs = MTCS(
                 domain=self.domain,
                 log=self.log,
+                intended_usage=MTCSUsages.Slew,
             )
             await self.mtcs.start_task
         else:

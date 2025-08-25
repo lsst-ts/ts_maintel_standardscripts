@@ -22,10 +22,8 @@
 __all__ = ["DisableAOSClosedLoop"]
 
 
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
-
-CMD_TIMEOUT = 100
 
 
 class DisableAOSClosedLoop(BaseBlockScript):
@@ -53,7 +51,9 @@ class DisableAOSClosedLoop(BaseBlockScript):
     async def configure_tcs(self) -> None:
         if self.mtcs is None:
             self.log.debug("Creating MTCS.")
-            self.mtcs = MTCS(domain=self.domain, log=self.log)
+            self.mtcs = MTCS(
+                domain=self.domain, log=self.log, intended_usage=MTCSUsages.AOS
+            )
             await self.mtcs.start_task
         else:
             self.log.debug("MTCS already defined, skipping.")
@@ -64,11 +64,11 @@ class DisableAOSClosedLoop(BaseBlockScript):
         await super().configure(config=config)
 
     def set_metadata(self, metadata):
-        metadata.duration = CMD_TIMEOUT
+        metadata.duration = self.mtcs.aos_closed_loop_timeout
 
     async def run_block(self):
         """Disable AOS Closed Loop task that runs
         in parallel to survey mode imaging.
         """
         await self.checkpoint("Disabling AOS Closed Loop")
-        await self.mtcs.rem.mtaos.cmd_stopClosedLoop.start(timeout=CMD_TIMEOUT)
+        await self.mtcs.disable_aos_closed_loop()

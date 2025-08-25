@@ -45,7 +45,7 @@ class EndOfNightConfig:
         "mthexapod_2": "DISABLED",
         "mtrotator": "DISABLED",
         "mtdome": "DISABLED",
-        "mtdometrajectory": "STANDBY",
+        "mtdometrajectory": "DISABLED",
     }
     LSSTCam = {
         "mtcamera": "ENABLED",

@@ -22,7 +22,10 @@
 import contextlib
 import unittest
 
+import astropy.units as u
 import pytest
+from astropy.coordinates import ICRS, AltAz, Angle, EarthLocation, SkyCoord
+from astropy.time import Time
 from lsst.ts import salobj, standardscripts
 from lsst.ts.maintel.standardscripts import MoveP2P
 
@@ -31,6 +34,25 @@ class TestMoveP2P(standardscripts.BaseScriptTestCase, unittest.IsolatedAsyncioTe
     async def basic_make_script(self, index):
         self.script = MoveP2P(index=index)
 
+        self.current_azimuth = 90.0
+        self.current_elevation = 45.0
+
+        cerro_pachon_location = EarthLocation(
+            lat=-30.2407 * u.deg, lon=-70.7366 * u.deg, height=2635 * u.m
+        )
+        coord_frame_azel = SkyCoord(
+            AltAz(
+                alt=Angle(self.current_elevation, unit=u.deg),
+                az=Angle(self.current_azimuth, unit=u.deg),
+                location=cerro_pachon_location,
+                obstime=Time("2025-07-03 22:00:00"),
+            )
+        )
+        self.current_radec = coord_frame_azel.transform_to(ICRS)
+
+        self.current_right_ascension = self.current_radec.ra.hour
+        self.current_declination = self.current_radec.dec.degree
+
         return (self.script,)
 
     @contextlib.asynccontextmanager
@@ -38,45 +60,70 @@ class TestMoveP2P(standardscripts.BaseScriptTestCase, unittest.IsolatedAsyncioTe
         async with self.make_script():
             self.script.mtcs = unittest.mock.AsyncMock()
             self.script.mtcs.components_attr = ["mtm1m3"]
+            self.script.mtcs.configure_mock(
+                **{
+                    "rem.mtmount.tel_azimuth.next.return_value": unittest.mock.Mock(
+                        actualPosition=self.current_azimuth
+                    ),
+                    "rem.mtmount.tel_elevation.next.return_value": unittest.mock.Mock(
+                        actualPosition=self.current_elevation
+                    ),
+                }
+            )
+            self.script.mtcs.radec_from_azel = unittest.mock.Mock(
+                return_value=self.current_radec
+            )
             yield
 
-    async def test_config_fail_az_no_el(self) -> None:
+    async def test_config_az_no_el(self) -> None:
         async with self.make_dry_script():
-            with pytest.raises(
-                salobj.ExpectedError,
-                match="is not valid under any of the given schemas",
-            ):
-                await self.configure_script(az=0.0)
+            await self.configure_script(az=0.0)
 
-    async def test_config_fail_el_no_az(self) -> None:
-        async with self.make_dry_script():
-            with pytest.raises(
-                salobj.ExpectedError,
-                match="is not valid under any of the given schemas",
-            ):
-                await self.configure_script(el=0.0)
+        self.script.mtcs.rem.mtmount.tel_elevation.next.assert_awaited_once()
 
-    async def test_config_fail_ra_no_dec(self) -> None:
-        async with self.make_dry_script():
-            with pytest.raises(
-                salobj.ExpectedError,
-                match="is not valid under any of the given schemas",
-            ):
-                await self.configure_script(ra=0.0)
+        assert self.script.config.az == 0.0
+        assert self.script.config.el == self.current_elevation
 
-    async def test_config_fail_dec_no_ra(self) -> None:
+    async def test_config_el_no_az(self) -> None:
         async with self.make_dry_script():
-            with pytest.raises(
-                salobj.ExpectedError,
-                match="is not valid under any of the given schemas",
-            ):
-                await self.configure_script(dec=0.0)
+            await self.configure_script(el=0.0)
+
+        self.script.mtcs.rem.mtmount.tel_azimuth.next.assert_awaited_once()
+
+        assert self.script.config.el == 0.0
+        assert self.script.config.az == self.current_azimuth
+
+    async def test_config_ra_no_dec(self) -> None:
+        async with self.make_dry_script():
+            await self.configure_script(ra=0.0)
+
+        self.script.mtcs.rem.mtmount.tel_azimuth.next.assert_awaited_once()
+        self.script.mtcs.rem.mtmount.tel_elevation.next.assert_awaited_once()
+        self.script.mtcs.radec_from_azel.assert_called_once_with(
+            az=self.current_azimuth, el=self.current_elevation
+        )
+
+        assert self.script.config.ra == 0.0
+        assert self.script.config.dec == self.current_declination
+
+    async def test_config_dec_no_ra(self) -> None:
+        async with self.make_dry_script():
+            await self.configure_script(dec=0.0)
+
+        self.script.mtcs.rem.mtmount.tel_azimuth.next.assert_awaited_once()
+        self.script.mtcs.rem.mtmount.tel_elevation.next.assert_awaited_once()
+        self.script.mtcs.radec_from_azel.assert_called_once_with(
+            az=self.current_azimuth, el=self.current_elevation
+        )
+
+        assert self.script.config.ra == self.current_right_ascension
+        assert self.script.config.dec == 0.0
 
     async def test_config_fail_no_defaults(self) -> None:
         async with self.make_dry_script():
             with pytest.raises(
                 salobj.ExpectedError,
-                match="is not valid under any of the given schemas",
+                match="Failed validating",
             ):
                 await self.configure_script()
 
@@ -88,7 +135,7 @@ class TestMoveP2P(standardscripts.BaseScriptTestCase, unittest.IsolatedAsyncioTe
             dec = -30.0
             with pytest.raises(
                 salobj.ExpectedError,
-                match="Failed validating 'oneOf' in schema",
+                match="Failed validating",
             ):
                 await self.configure_script(
                     az=az,
