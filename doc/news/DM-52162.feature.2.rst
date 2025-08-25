@@ -1,0 +1,1 @@
+Limited the resources allocated by ``MTCS`` in ``enable_hexapod_compensation_mode.py``.
