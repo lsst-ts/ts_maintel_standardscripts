@@ -1,1 +1,0 @@
-Updated ``csc_end_of_night.py`` to set default end of night state to DISABLED. The MTDomeTrajectory CSC should remain DISABLED at the end of the night. This ensures that vignetting calculations for image metadata are correctly handled, as the CSC cannot perform these calculations when in STANDBY.

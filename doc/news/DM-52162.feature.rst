@@ -1,1 +1,0 @@
-Limited the resources allocated by ``MTCS`` in ``mtrotator/move_rotator.py``.

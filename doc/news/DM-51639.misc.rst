@@ -1,1 +1,0 @@
-In ``set_dof.py``, handle condition when the retrieved state contains invalid nan values.

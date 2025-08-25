@@ -1,1 +1,0 @@
-Add calibration screen alignment function to `lasertracker/align.py` script

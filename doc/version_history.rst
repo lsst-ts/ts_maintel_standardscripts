@@ -8,6 +8,51 @@ Version History
 
 .. towncrier release notes start
 
+v0.3.0 (2025-08-25)
+===================
+
+New Features
+------------
+
+- Move MTAOS start/stop close loop logic to MTCS. (`DM-50762 <https://rubinobs.atlassian.net//browse/DM-50762>`_)
+- Added a new script called `maintel/ensure_onsky_readiness.py` to perform a sequence of checks and actions ensuring the telescope and associated systems are ready for on-sky operations. (`DM-50862 <https://rubinobs.atlassian.net//browse/DM-50862>`_)
+- Allow ``move_p2p.py`` and ``point_azel.py`` scripts to receive only one axis. (`DM-51170 <https://rubinobs.atlassian.net//browse/DM-51170>`_)
+- Add `offset_dome` script that performs a relative movement of the MTDome. (`DM-51171 <https://rubinobs.atlassian.net//browse/DM-51171>`_)
+- In ``base_close_loop.py``:
+  - Update compute_ofc_offset to retrieve the filter from the camera if it is not set.
+  - Ensure threshold check only runs if the visit dof and threshold array are the same length.
+  - Stop waiting for the wep results after run wep executes. (`DM-51217 <https://rubinobs.atlassian.net//browse/DM-51217>`_)
+- Add calibration screen alignment function to `lasertracker/align.py` script (`DM-51304 <https://rubinobs.atlassian.net//browse/DM-51304>`_)
+- Update laser_tracker/align.py make sure ``MTCS`` ignore the ``MTDome`` when repositioning the telescope. (`DM-51639 <https://rubinobs.atlassian.net//browse/DM-51639>`_)
+- Updated ``home_both_axes.py``, to set wait_dome=True while slewing the telescope to final position. (`DM-51828 <https://rubinobs.atlassian.net//browse/DM-51828>`_)
+- Updated ``csc_end_of_night.py`` to set default end of night state to DISABLED. The MTDomeTrajectory CSC should remain DISABLED at the end of the night. This ensures that vignetting calculations for image metadata are correctly handled, as the CSC cannot perform these calculations when in STANDBY. (`DM-51828 <https://rubinobs.atlassian.net//browse/DM-51828>`_)
+- Updated ``home_both_axes.py`` to add cleanup method that will stop tracking if script fails. (`DM-51828 <https://rubinobs.atlassian.net//browse/DM-51828>`_)
+- In ``home_both_axes.py``, add new configurable option to re-home the axis at a provided az/el position. (`DM-51900 <https://rubinobs.atlassian.net//browse/DM-51900>`_)
+- Limited the resources allocated by ``MTCS`` in ``enable_hexapod_compensation_mode.py``. (`DM-52162 <https://rubinobs.atlassian.net//browse/DM-52162>`_)
+- Limited the resources allocated by ``MTCS`` in ``mtrotator/move_rotator.py``. (`DM-52162 <https://rubinobs.atlassian.net//browse/DM-52162>`_)
+- Limited the resources allocated by ``MTCS`` in ``point_azel.py``. (`DM-52162 <https://rubinobs.atlassian.net//browse/DM-52162>`_)
+- Ensure scripts used to take calibrations for SimonyiTel are enforcing the required MTCS state. (`OSW-897 <https://rubinobs.atlassian.net//browse/OSW-897>`_)
+- Updated the m1m3 check actuators script to run the bump test concurrently for multiple actuators. It relies on the new ``get_m1m3_actuator_to_test`` method from ``MTCS`` to retrieve feasible actuators to test concurrently. (`OSW-949 <https://rubinobs.atlassian.net//browse/OSW-949>`_)
+
+
+Bug Fixes
+---------
+
+- Modified the ``ensure_onsky_readiness`` script behavior to keep going if Dome Shutter and/or AOS Closed Loop are not open/enabled. (`DM-51428 <https://rubinobs.atlassian.net//browse/DM-51428>`_)
+- Added protection against cancellations in ``m1m3/check_actuators.py``. (`DM-51428 <https://rubinobs.atlassian.net//browse/DM-51428>`_)
+- Fixed targets for laser tracker align script. (`DM-51428 <https://rubinobs.atlassian.net//browse/DM-51428>`_)
+- Fixed a bug in ``base_close_loop`` retrieving current camera filter. (`DM-51428 <https://rubinobs.atlassian.net//browse/DM-51428>`_)
+
+
+Other Changes and Additions
+---------------------------
+
+- In maintel/m2:
+  - Rename enable_closed_loop.py to enable_m2_closed_loop.py
+  - Rename disable_closed_loop.py to disable_m2_closed_loop.py (`DM-51230 <https://rubinobs.atlassian.net//browse/DM-51230>`_)
+- In ``set_dof.py``, handle condition when the retrieved state contains invalid nan values. (`DM-51639 <https://rubinobs.atlassian.net//browse/DM-51639>`_)
+
+
 v0.2.0 (2025-06-06)
 ===================
 

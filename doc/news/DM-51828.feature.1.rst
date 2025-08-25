@@ -1,1 +1,0 @@
-Updated ``home_both_axes.py``, to set wait_dome=True while slewing the telescope to final position.

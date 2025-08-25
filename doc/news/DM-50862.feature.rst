@@ -1,1 +1,0 @@
-Added a new script called `maintel/ensure_onsky_readiness.py` to perform a sequence of checks and actions ensuring the telescope and associated systems are ready for on-sky operations.
