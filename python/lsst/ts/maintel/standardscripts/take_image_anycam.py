@@ -113,7 +113,7 @@ class TakeImageAnyCam(BaseBlockScript):
 
     @classmethod
     def get_schema(cls):
-        schema_yaml = """
+        schema_yaml = f"""
             $schema: http://json-schema.org/draft-07/schema#
             $id: https://github.com/lsst-ts/ts_standardscripts/take_image_anycam.yaml
             title: TakeImageAnyCam
@@ -144,7 +144,7 @@ class TakeImageAnyCam(BaseBlockScript):
                   image_type:
                     description: Image type (a.k.a. IMGTYPE) (e.g. e.g. BIAS, DARK, FLAT, OBJECT)
                     type: string
-                    enum: ["BIAS", "DARK", "FLAT", "OBJECT", "ENGTEST", "ACQ", "CWFS", "FOCUS", "STUTTERED"]
+                    enum: {list(set(LSSTCam.get_image_types()) | set(ComCam.get_image_types()))!r}
                   filter:
                     description: Filter name or ID; if omitted the filter is not changed.
                     anyOf:

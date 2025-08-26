@@ -64,6 +64,10 @@ class TakeImageLSSTCam(BaseTakeImage):
     def camera(self):
         return self._lsstcam
 
+    @staticmethod
+    def get_available_imgtypes():
+        return LSSTCam.get_image_types()
+
     @classmethod
     def get_schema(cls):
         schema_yaml = """

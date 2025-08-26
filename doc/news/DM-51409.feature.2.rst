@@ -1,0 +1,1 @@
+Update ``TakeImageAnyCam`` to read available image types from ``LSSTCam`` and ``ComCam`` classes.
