@@ -1,0 +1,1 @@
+Implement guider selection in track_target_and_take_image script.
