@@ -25,6 +25,7 @@ import copy
 import logging
 import types
 import unittest
+import unittest.mock
 
 import numpy
 import pytest
@@ -129,6 +130,57 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
             self.script.mtcs.check_tracking.assert_awaited_once()
 
             self.script.mtcs.stop_tracking.assert_not_awaited()
+
+    async def test_configure_init_guider_called_with_selected_roi(self):
+        async with self.make_script(), self.setup_mocks():
+            # Patch GuiderROIs inside the script module to return a
+            # known ROI spec
+            class DummyGuiderROIs:
+                def __init__(self, log=None):
+                    pass
+
+                def get_guider_rois(
+                    self,
+                    ra,
+                    dec,
+                    sky_angle,
+                    roi_size,
+                    roi_time,
+                    band,
+                    npix_edge=50,
+                    use_guider=True,
+                    use_wavefront=False,
+                    use_science=False,
+                ):
+                    roi_yaml = (
+                        "roi_spec:\n"
+                        "  common:\n"
+                        "    rows: 111\n"
+                        "    cols: 111\n"
+                        "    integration_time_millis: 66\n"
+                        "  roi:\n"
+                        "    R00SG0:\n"
+                        "      segment: 7\n"
+                        "      start_row: 10\n"
+                        "      start_col: 20\n"
+                    )
+                    return roi_yaml, None
+
+            with unittest.mock.patch(
+                "lsst.ts.maintel.standardscripts.track_target_and_take_image_lsstcam.GuiderROIs",
+                DummyGuiderROIs,
+            ):
+                self.script.lsstcam.init_guider = unittest.mock.AsyncMock()
+
+                await self.configure_script_full()
+
+                self.script.lsstcam.init_guider.assert_awaited()
+                args, kwargs = self.script.lsstcam.init_guider.await_args
+                roi_spec = kwargs.get("roi_spec") if kwargs else args[0]
+
+                assert roi_spec.common.rows == 111
+                assert roi_spec.common.cols == 111
+                assert roi_spec.common.integrationTimeMillis == 66
 
     async def test_run_with_filter_change(self):
         async with self.make_script(), self.setup_mocks():

@@ -23,9 +23,14 @@ __all__ = ["TrackTargetAndTakeImageLSSTCam"]
 
 import asyncio
 
+import astropy.units as u
+import yaml
+from astropy.coordinates import Angle
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.utils import RotType
+from lsst.ts.observatory.control.utils.extras.guider_roi import GuiderROIs
+from lsst.ts.observatory.control.utils.roi_spec import ROISpec
 from lsst.ts.standardscripts.base_track_target_and_take_image import (
     BaseTrackTargetAndTakeImage,
 )
@@ -93,12 +98,59 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
     def get_instrument_name(self):
         return self.instrument_name
 
+    async def configure(self, config):
+        await super().configure(config)
+        try:
+            await self.set_guider_roi()
+        except Exception:
+            self.log.exception("Failed to set guider ROI: continuing...")
+
+    async def set_guider_roi(self):
+        """Run guider ROI selection and initialize guiders.
+
+        Uses DM-based selection via GuiderROIs and initializes the guider
+        configuration in the camera before running.
+        """
+
+        ra_deg = Angle(self.config.ra, unit=u.hourangle).deg
+        dec_deg = Angle(self.config.dec, unit=u.deg).deg
+        sky_angle = float(self.config.rot_sky)
+
+        # Determine band first letter (e.g., r, i, etc.)
+        band_value = (
+            self.config.band_filter[0]
+            if isinstance(self.config.band_filter, list)
+            else self.config.band_filter
+        )
+        band = str(band_value)[0].lower()
+
+        roi_size = self.lsstcam.DEFAULT_GUIDER_ROI_ROWS
+        roi_time_ms = self.lsstcam.DEFAULT_GUIDER_ROI_TIME_MS
+
+        guider_rois = GuiderROIs(log=self.log)
+        config_text, _ = guider_rois.get_guider_rois(
+            ra=ra_deg,
+            dec=dec_deg,
+            sky_angle=sky_angle,
+            roi_size=roi_size,
+            roi_time=roi_time_ms,
+            band=band,
+            npix_edge=50,
+            use_guider=True,
+            use_wavefront=False,
+            use_science=False,
+        )
+
+        roi_spec_dict = yaml.safe_load(config_text)["roi_spec"]
+        roi_spec = ROISpec.parse_obj(roi_spec_dict)
+        await self.lsstcam.init_guider(roi_spec=roi_spec)
+
     async def load_playlist(self):
         """Load playlist."""
         await self.lsstcam.rem.mtcamera.cmd_play.set_start(
             playlist=self.config.camera_playlist,
             repeat=True,
-            timeout=self.comcam.fast_timeout,
+            timeout=self.lsstcam.fast_timeout,
         )
 
     async def assert_feasibility(self):
