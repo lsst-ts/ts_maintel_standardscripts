@@ -602,7 +602,7 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                         el=self.elevation,
                         rot_tel=self.rotation,
                     )
-                    await self.tcs.start_tracking()
+                    await self.mtcs.start_tracking()
                 except RuntimeError as e:
                     raise RuntimeError(f"Malformed coordinates: {e}")
             else:
