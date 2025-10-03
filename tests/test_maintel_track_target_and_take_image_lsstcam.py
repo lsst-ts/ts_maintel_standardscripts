@@ -182,6 +182,138 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                 assert roi_spec.common.cols == 111
                 assert roi_spec.common.integrationTimeMillis == 66
 
+    async def test_configure_roi_defaults(self):
+        """Test that default ROI size and time are used when not specified."""
+        async with self.make_script(), self.setup_mocks():
+            captured_params = {}
+
+            class DummyGuiderROIs:
+                def __init__(self, log=None):
+                    pass
+
+                def get_guider_rois(
+                    self,
+                    ra,
+                    dec,
+                    sky_angle,
+                    roi_size,
+                    roi_time,
+                    band,
+                    npix_edge=50,
+                    use_guider=True,
+                    use_wavefront=False,
+                    use_science=False,
+                ):
+                    captured_params["roi_size"] = roi_size
+                    captured_params["roi_time"] = roi_time
+                    roi_yaml = (
+                        "roi_spec:\n"
+                        "  common:\n"
+                        "    rows: 400\n"
+                        "    cols: 400\n"
+                        "    integration_time_millis: 200\n"
+                    )
+                    return roi_yaml, None
+
+            with unittest.mock.patch(
+                "lsst.ts.maintel.standardscripts.track_target_and_take_image_lsstcam.GuiderROIs",
+                DummyGuiderROIs,
+            ):
+                self.script.lsstcam.init_guider = unittest.mock.AsyncMock()
+
+                # Configure without roi_size and roi_time_ms
+                await self.configure_script_full()
+
+                assert (
+                    captured_params["roi_size"]
+                    == self.script.lsstcam.DEFAULT_GUIDER_ROI_ROWS
+                )
+                assert (
+                    captured_params["roi_time"]
+                    == self.script.lsstcam.DEFAULT_GUIDER_ROI_TIME_MS
+                )
+
+    async def test_configure_roi_custom_values(self):
+        """Test that custom ROI size and time values are used when passed."""
+        async with self.make_script(), self.setup_mocks():
+            captured_params = {}
+
+            class DummyGuiderROIs:
+                def __init__(self, log=None):
+                    pass
+
+                def get_guider_rois(
+                    self,
+                    ra,
+                    dec,
+                    sky_angle,
+                    roi_size,
+                    roi_time,
+                    band,
+                    npix_edge=50,
+                    use_guider=True,
+                    use_wavefront=False,
+                    use_science=False,
+                ):
+                    captured_params["roi_size"] = roi_size
+                    captured_params["roi_time"] = roi_time
+                    roi_yaml = (
+                        f"roi_spec:\n"
+                        f"  common:\n"
+                        f"    rows: {roi_size}\n"
+                        f"    cols: {roi_size}\n"
+                        f"    integration_time_millis: {roi_time}\n"
+                        f"  roi:\n"
+                        f"    R00SG0:\n"
+                        f"      segment: 7\n"
+                        f"      start_row: 10\n"
+                        f"      start_col: 20\n"
+                    )
+                    return roi_yaml, None
+
+            with unittest.mock.patch(
+                "lsst.ts.maintel.standardscripts.track_target_and_take_image_lsstcam.GuiderROIs",
+                DummyGuiderROIs,
+            ):
+                self.script.lsstcam.init_guider = unittest.mock.AsyncMock()
+
+                # Configure with custom roi_size and roi_time_ms
+                # Note: Values must be within ROISpec validation limits:
+                # rows/cols: 10-400, integration_time_millis: 5-200
+                custom_roi_size = 350
+                custom_roi_time_ms = 150
+
+                configuration = dict(
+                    targetid=10,
+                    ra="10:00:00",
+                    dec="-10:00:00",
+                    rot_sky=0.0,
+                    name="unit_test_target",
+                    obs_time=7.0,
+                    estimated_slew_time=5.0,
+                    num_exp=2,
+                    exp_times=[2.0, 1.0],
+                    band_filter="r",
+                    reason="Unit testing",
+                    program="UTEST",
+                    note="Note_utest",
+                    roi_size=custom_roi_size,
+                    roi_time_ms=custom_roi_time_ms,
+                )
+
+                await self.configure_script(**configuration)
+
+                assert captured_params["roi_size"] == custom_roi_size
+                assert captured_params["roi_time"] == custom_roi_time_ms
+
+                self.script.lsstcam.init_guider.assert_awaited()
+                args, kwargs = self.script.lsstcam.init_guider.await_args
+                roi_spec = kwargs.get("roi_spec") if kwargs else args[0]
+
+                assert roi_spec.common.rows == custom_roi_size
+                assert roi_spec.common.cols == custom_roi_size
+                assert roi_spec.common.integrationTimeMillis == custom_roi_time_ms
+
     async def test_run_with_filter_change(self):
         async with self.make_script(), self.setup_mocks():
             self.current_filter = "g"
@@ -409,6 +541,10 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
         self.script.lsstcam.take_object = unittest.mock.AsyncMock(
             side_effect=self.take_object_side_effect
         )
+
+        # Set default ROI constants for testing
+        self.script.lsstcam.DEFAULT_GUIDER_ROI_ROWS = 400
+        self.script.lsstcam.DEFAULT_GUIDER_ROI_TIME_MS = 200
 
         self.script.mtcs.rem.mtrotator.configure_mock(
             **{"tel_rotation.next.side_effect": self.get_rotator_position}

@@ -93,6 +93,19 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
         schema_dict["title"] = "TrackTargetAndTakeImageLSSTCam v1"
         schema_dict["description"] = "Configuration for TrackTargetAndTakeImageLSSTCam."
 
+        schema_dict["properties"]["roi_size"] = {
+            "type": "integer",
+            "description": "Size of the guider ROI in pixels (rows and cols).",
+            "default": 400,
+            "minimum": 1,
+        }
+        schema_dict["properties"]["roi_time_ms"] = {
+            "type": "integer",
+            "description": "Integration time for the guider ROI in milliseconds.",
+            "default": 200,
+            "minimum": 1,
+        }
+
         return schema_dict
 
     def get_instrument_name(self):
@@ -124,8 +137,12 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
         )
         band = str(band_value)[0].lower()
 
-        roi_size = self.lsstcam.DEFAULT_GUIDER_ROI_ROWS
-        roi_time_ms = self.lsstcam.DEFAULT_GUIDER_ROI_TIME_MS
+        roi_size = getattr(
+            self.config, "roi_size", self.lsstcam.DEFAULT_GUIDER_ROI_ROWS
+        )
+        roi_time_ms = getattr(
+            self.config, "roi_time_ms", self.lsstcam.DEFAULT_GUIDER_ROI_TIME_MS
+        )
 
         guider_rois = GuiderROIs(log=self.log)
         config_text, _ = guider_rois.get_guider_rois(
