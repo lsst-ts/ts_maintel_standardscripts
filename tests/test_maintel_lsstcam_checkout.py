@@ -138,6 +138,15 @@ class TestLsstCamCheckout(
 
         yield
 
+    async def get_state_side_effect(self, name):
+        if name == "mtptg":
+            return salobj.State.ENABLED
+        if name == "mtrotator":
+            return salobj.State.ENABLED
+        if name == "mtmount":
+            return salobj.State.DISABLED
+        return salobj.State.ENABLED
+
     async def test_configure_basic(self):
         """Test basic configuration without filter exercise"""
         async with self.make_script():
@@ -153,6 +162,11 @@ class TestLsstCamCheckout(
             mock_mtcs = unittest.mock.AsyncMock()
             mock_mtcs.start_task = utils.make_done_future()
             mock_mtcs.disable_checks_for_components = unittest.mock.Mock()
+            # New strict checks require querying states
+
+            mock_mtcs.get_state = unittest.mock.AsyncMock(
+                side_effect=self.get_state_side_effect
+            )
 
             with patch(
                 "lsst.ts.maintel.standardscripts.daytime_checkout.lsstcam_checkout.MTCS",
@@ -164,28 +178,48 @@ class TestLsstCamCheckout(
                 assert self.script.mtcs is not None
 
     async def test_configure_filter_only_validation(self):
-        """Test validation that filter_only requires exercise_filters"""
+        """Test that filter_only forces exercise_filters with a warning"""
 
         exercise_filters = False
         filter_only = True
 
         async with self.make_script():
-            with self.assertRaises(salobj.ExpectedError):
+            mock_mtcs = unittest.mock.AsyncMock()
+            mock_mtcs.start_task = utils.make_done_future()
+            mock_mtcs.disable_checks_for_components = unittest.mock.Mock()
+            mock_mtcs.get_state = unittest.mock.AsyncMock(
+                side_effect=self.get_state_side_effect
+            )
+
+            with patch(
+                "lsst.ts.maintel.standardscripts.daytime_checkout.lsstcam_checkout.MTCS",
+                return_value=mock_mtcs,
+            ):
                 await self.configure_script(
                     exercise_filters=exercise_filters,
                     filter_only=filter_only,
                 )
 
+                # exercise_filters should have been forced True
+                assert self.script.exercise_filters is True
+                assert self.script.filter_only is True
+                assert self.script.mtcs is not None
+
     async def test_configure_ignore_components(self):
         """Test ignore parameter functionality"""
         async with self.make_script():
-            ignore_components = ["mtheaderservice", "mtmount", "no_csc"]
+
+            ignore_components = ["mtheaderservice", "no_csc"]
             exercise_filters = True
             exercise_filters_only = False
 
             mock_mtcs = unittest.mock.AsyncMock()
             mock_mtcs.start_task = utils.make_done_future()
             mock_mtcs.disable_checks_for_components = unittest.mock.Mock()
+
+            mock_mtcs.get_state = unittest.mock.AsyncMock(
+                side_effect=self.get_state_side_effect
+            )
 
             with patch(
                 "lsst.ts.maintel.standardscripts.daytime_checkout.lsstcam_checkout.MTCS",
@@ -207,17 +241,35 @@ class TestLsstCamCheckout(
                 components=ignore_components
             )
 
-    async def test_configure_ignore_mtrotator_validation(self):
-        """Test validation that mtrotator cannot be ignored with filters"""
+    async def test_configure_ignore_mtrotator_auto_removal(self):
+        """Critical 'mtrotator' is auto-removed from ignore when
+        exercising filters."""
 
         exercise_filters = True
         ignore_components = ["mtrotator"]
 
         async with self.make_script():
-            with self.assertRaises(salobj.ExpectedError):
+            mock_mtcs = unittest.mock.AsyncMock()
+            mock_mtcs.start_task = utils.make_done_future()
+            mock_mtcs.disable_checks_for_components = unittest.mock.Mock()
+            mock_mtcs.get_state = unittest.mock.AsyncMock(
+                side_effect=self.get_state_side_effect
+            )
+            with patch(
+                "lsst.ts.maintel.standardscripts.daytime_checkout.lsstcam_checkout.MTCS",
+                return_value=mock_mtcs,
+            ):
                 await self.configure_script(
                     exercise_filters=exercise_filters,
                     ignore=ignore_components,
+                )
+
+                # Critical component should be removed; resulting list is empty
+                self.script.lsstcam.disable_checks_for_components.assert_called_once_with(
+                    components=[]
+                )
+                self.script.mtcs.disable_checks_for_components.assert_called_once_with(
+                    components=[]
                 )
 
     async def test_run_basic_checkout(self):
@@ -249,8 +301,12 @@ class TestLsstCamCheckout(
             mock_mtcs = unittest.mock.AsyncMock()
             mock_mtcs.start_task = utils.make_done_future()
             mock_mtcs.assert_all_enabled = unittest.mock.AsyncMock()
-            mock_mtcs.change_filter = unittest.mock.AsyncMock()
             mock_mtcs.disable_checks_for_components = unittest.mock.Mock()
+            self.script.lsstcam.setup_instrument = unittest.mock.AsyncMock()
+
+            mock_mtcs.get_state = unittest.mock.AsyncMock(
+                side_effect=self.get_state_side_effect
+            )
 
             # Mock random.choice to return a predictable but different filter
             expected_intermediate_filter = "g"
@@ -276,12 +332,13 @@ class TestLsstCamCheckout(
                 self.script.lsstcam.assert_all_enabled.assert_called_once()
                 self.script.mtcs.assert_all_enabled.assert_called_once()
 
-                # Verify filter changes (current -> expected -> original)
+                # Verify filter changes via camera (current -> expected ->
+                # original)
                 expected_calls = [
-                    unittest.mock.call(expected_intermediate_filter),
-                    unittest.mock.call(self.current_filter),
+                    unittest.mock.call(filter=expected_intermediate_filter),
+                    unittest.mock.call(filter=self.current_filter),
                 ]
-                self.script.mtcs.change_filter.assert_has_calls(expected_calls)
+                self.script.lsstcam.setup_instrument.assert_has_calls(expected_calls)
 
     async def test_run_filter_only(self):
         """Test filter-only mode (skip image checks)"""
@@ -289,8 +346,12 @@ class TestLsstCamCheckout(
             mock_mtcs = unittest.mock.AsyncMock()
             mock_mtcs.start_task = utils.make_done_future()
             mock_mtcs.assert_all_enabled = unittest.mock.AsyncMock()
-            mock_mtcs.change_filter = unittest.mock.AsyncMock()
             mock_mtcs.disable_checks_for_components = unittest.mock.Mock()
+            self.script.lsstcam.setup_instrument = unittest.mock.AsyncMock()
+
+            mock_mtcs.get_state = unittest.mock.AsyncMock(
+                side_effect=self.get_state_side_effect
+            )
 
             # Mock random.choice to return a predictable but different filter
             expected_intermediate_filter = "r"  # Different from current "u"
@@ -313,12 +374,12 @@ class TestLsstCamCheckout(
 
                 # Verify filter exercise was called with expected sequence
                 expected_calls = [
-                    unittest.mock.call(expected_intermediate_filter),
-                    unittest.mock.call(self.current_filter),
+                    unittest.mock.call(filter=expected_intermediate_filter),
+                    unittest.mock.call(filter=self.current_filter),
                 ]
-                self.script.mtcs.change_filter.assert_has_calls(expected_calls)
+                self.script.lsstcam.setup_instrument.assert_has_calls(expected_calls)
 
-    async def test_run_script_with_ingest_failure(self):
+    async def test_run_with_ingest_failure(self):
         """Test script with OODS ingestion failure"""
         async with self.make_script(), self.setup_mocks():
             await self.configure_script()
@@ -337,7 +398,7 @@ class TestLsstCamCheckout(
             self.script.lsstcam.take_bias.assert_awaited_once()
             self.script.lsstcam.take_engtest.assert_not_awaited()
 
-    async def test_run_script_with_failed_ingestion_status(self):
+    async def test_run_with_failed_ingestion_status(self):
         """Test script with failed ingestion status codes"""
         async with self.make_script(), self.setup_mocks():
             await self.configure_script()
@@ -361,10 +422,15 @@ class TestLsstCamCheckout(
             mock_mtcs = unittest.mock.AsyncMock()
             mock_mtcs.start_task = utils.make_done_future()
             mock_mtcs.assert_all_enabled = unittest.mock.AsyncMock()
-            mock_mtcs.change_filter = unittest.mock.AsyncMock(
+            mock_mtcs.disable_checks_for_components = unittest.mock.Mock()
+
+            mock_mtcs.get_state = unittest.mock.AsyncMock(
+                side_effect=self.get_state_side_effect
+            )
+            # Fail the camera's setup_instrument during filter exercise
+            self.script.lsstcam.setup_instrument = unittest.mock.AsyncMock(
                 side_effect=Exception("Filter change failed")
             )
-            mock_mtcs.disable_checks_for_components = unittest.mock.Mock()
 
             # Mock random.choice to return a predictable but different filter
             expected_intermediate_filter = "i"
