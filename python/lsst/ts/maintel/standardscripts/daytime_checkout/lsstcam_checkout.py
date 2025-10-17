@@ -23,6 +23,7 @@ __all__ = ["LsstCamCheckout"]
 
 import asyncio
 import random
+from contextlib import asynccontextmanager
 
 import yaml
 from lsst.ts import salobj, utils
@@ -30,9 +31,7 @@ from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts.utils import get_topic_time_utc
 
-STD_TIMEOUT = 10  # seconds
 INGESTION_TIMEOUT = 30  # seconds to wait for all image ingestion events
-MAX_TELEMETRY_AGE = 60  # Maximum age for imageInOODS telemetry to be considered valid
 SLEEP_BETWEEN_FILTER_CHANGES = 120  # seconds to wait between filter changes
 
 
@@ -369,74 +368,51 @@ class LsstCamCheckout(salobj.BaseScript):
             self.log.warning(f"Could not retrieve available filters: {e}.")
 
     async def verify_bias_frame(self):
-        """Take a bias frame and verify successful OODS ingestion.
+        """Take a bias frame and verify OODS ingestion.
 
-        This step flushes the OODS event queue, takes a bias frame with
-        metadata, waits for OODS ingestion events, and checks that all
-        ingestion events for the obsid have statusCode == 0.
+        The image is taken inside ``ingested_image()``, which flushes the
+        OODS queue, waits up to ``self.ingestion_timeout``, and validates
+        ingestion for the latest exposure.
 
         Raises
         ------
         RuntimeError
-            If image ingestion fails or times out.
+            If ingestion validation fails.
         """
         await self.checkpoint("Bias Frame Verification.")
 
-        self.lsstcam.rem.mtoods.evt_imageInOODS.flush()
-        exposure_ids = await self.lsstcam.take_bias(
-            nbias=1,
-        )
+        async with self.ingested_image():
+            await self.lsstcam.take_bias(nbias=1)
 
-        # Verify ingestion of the bias image taken
-        exposure_id = exposure_ids[0]
-        # Extract date and sequence from exposure_id (format: YYYYMMDDNNNNNN)
-        exposure_id_str = str(exposure_id)
-        date_str = exposure_id_str[:8]  # YYYYMMDD
-        seq_str = exposure_id_str[8:]  # NNNNNN
-
-        # Format expected_obsid as "MC_O_YYYYMMDD_NNNNNN"
-        expected_obsid = f"MC_O_{date_str}_{seq_str:0>6}"
-
-        await self._verify_image_ingestion(expected_obsid=expected_obsid)
+        self.log.info("Bias exposure ingestion verified successfully.")
 
     async def verify_engtest_frame(self):
-        """Take an engineering frame and verify successful OODS ingestion.
+        """Take an engineering frame and verify OODS ingestion.
 
-        This step flushes the OODS event queue, takes an engineering test
-        frame with metadata, waits for OODS ingestion events, and checks
-        that all ingestion events for the obsid have statusCode == 0.
+        The image is taken inside ``ingested_image()``, which flushes the
+        OODS queue, waits up to ``self.ingestion_timeout``, and validates
+        ingestion for the latest exposure.
 
         Raises
         ------
         RuntimeError
-            If image ingestion fails or times out.
+            If ingestion validation fails.
         """
         await self.checkpoint("Engineering Frame Verification.")
 
-        self.lsstcam.rem.mtoods.evt_imageInOODS.flush()
+        async with self.ingested_image():
+            # Take the engineering test images and get the exposure IDs
+            await self.lsstcam.take_engtest(
+                n=1,
+                exptime=1,
+                program=self.program,
+                reason=self.reason,
+                note=self.note,
+            )
 
-        # Take the engineering test images and get the exposure IDs
-        exposure_ids = await self.lsstcam.take_engtest(
-            n=1,
-            exptime=1,
-            program=self.program,
-            reason=self.reason,
-            note=self.note,
-        )
+        self.log.info("Engineering exposure ingestion verified successfully.")
 
-        # Verify ingestion of the image taken
-        exposure_id = exposure_ids[0]
-        # Extract date and sequence from exposure_id (format: YYYYMMDDNNNNNN)
-        exposure_id_str = str(exposure_id)
-        date_str = exposure_id_str[:8]  # YYYYMMDD
-        seq_str = exposure_id_str[8:]  # NNNNNN
-
-        # Format expected_obsid as "MC_O_YYYYMMDD_NNNNNN"
-        expected_obsid = f"MC_O_{date_str}_{seq_str:0>6}"
-
-        await self._verify_image_ingestion(expected_obsid=expected_obsid)
-
-        # Get the current filter for logging after the image
+        # Get the current filter for logging after the image is taken
         try:
             inst_filter = await self.lsstcam.get_current_filter()
             # Update current filter if we get a good reading
@@ -446,88 +422,117 @@ class LsstCamCheckout(salobj.BaseScript):
             inst_filter = "UNKNOWN"
         self.log.info(f"Engineering test completed with filter {inst_filter}.")
 
-    async def _verify_image_ingestion(self, expected_obsid):
-        """Verify successful OODS ingestion for a single image.
+    @asynccontextmanager
+    async def ingested_image(self):
+        """Flush OODS events, run image acquisition, then validate ingestion.
 
-        This method collects all ingestion events for the specified obsid
-        and verifies that all raft/sensor combinations have statusCode == 0.
-
-        Parameters
-        ----------
-        expected_obsid : str
-            Expected observation ID in format "MC_O_YYYYMMDD_NNNNNN"
-            constructed from the exposure_id returned by the camera. The
-            exposure_id is an integer in format YYYYMMDDNNNNNN where
-            YYYYMMDD is the date and NNNNNN is the sequence number.
+        Runs the camera command inside the context and verifies ingestion for
+        the latest exposure.
 
         Raises
         ------
         RuntimeError
-            If image ingestion fails, times out, or has wrong status codes.
+            If no post-flush events arrive in time or any event reports
+            failure.
         """
-        ingestion_events = []
-        start_time = utils.current_tai()
 
-        self.log.info(f"Waiting for OODS ingestion events for obsid {expected_obsid}.")
+        # Flush any pre-existing events and record the flush time to help
+        # identify fresh telemetry for the exposure that will be taken.
+        self.lsstcam.rem.mtoods.evt_imageInOODS.flush()
+        flush_time = utils.current_tai()
+        success = False
 
-        while utils.current_tai() - start_time < self.ingestion_timeout:
-            try:
-                ingest_event = await self.lsstcam.rem.mtoods.evt_imageInOODS.next(
-                    flush=False, timeout=STD_TIMEOUT
-                )
+        try:
+            # Execute the image acquisition inside the context block
+            yield
+            success = True
+        finally:
+            if not success:
+                return
 
-                # Check telemetry age
-                event_timestamp = ingest_event.private_sndStamp
-                telemetry_age = utils.current_tai() - event_timestamp
-                if telemetry_age > MAX_TELEMETRY_AGE:
-                    self.log.warning(
-                        f"Ignoring stale ingestion event (age: {telemetry_age:.1f}s)."
-                    )
-                    continue
+            # Collect all fresh ingestion events for the latest exposure.
+            ingestion_events = []
+            failed_ingestions = []
+            unique_pairs = set()
+            observed_obsid = None
 
-                # Collect events for our expected obsid
-                if ingest_event.obsid == expected_obsid:
+            self.log.info("Waiting for OODS ingestion events for the latest exposure.")
+
+            async def collect_events():
+                nonlocal observed_obsid
+                while True:
+                    try:
+                        ingest_event = (
+                            await self.lsstcam.rem.mtoods.evt_imageInOODS.next(
+                                flush=False, timeout=self.ingestion_timeout
+                            )
+                        )
+                    except asyncio.TimeoutError:
+                        # No event within ingestion_timeout; let the outer
+                        # wait_for enforce the overall ingestion_timeout.
+                        return
+
+                    # Ensure the event was emitted after our flush
+                    if ingest_event.private_sndStamp < flush_time:
+                        self.log.warning(
+                            f"Ignoring pre-flush ingestion event with obsid "
+                            f"{getattr(ingest_event, 'obsid', '<unknown>')} ."
+                        )
+                        continue
+
+                    # Capture the obsid of the latest exposure and require
+                    # subsequent events to match it.
+                    if observed_obsid is None:
+                        observed_obsid = ingest_event.obsid
+                        self.log.debug(
+                            f"Tracking ingestion for obsid {observed_obsid}."
+                        )
+                    elif ingest_event.obsid != observed_obsid:
+                        self.log.warning(
+                            f"Ignoring ingestion event for unexpected obsid "
+                            f"{ingest_event.obsid} (expected {observed_obsid})."
+                        )
+                        continue
+
                     ingestion_events.append(ingest_event)
+                    unique_pairs.add((ingest_event.raft, ingest_event.sensor))
+                    if ingest_event.statusCode != 0:
+                        failed_ingestions.append(ingest_event)
                     self.log.debug(
                         f"Collected ingestion event for {ingest_event.obsid}, "
                         f"raft={ingest_event.raft}, sensor={ingest_event.sensor}, "
                         f"statusCode={ingest_event.statusCode}."
                     )
 
+            try:
+                await asyncio.wait_for(collect_events(), timeout=self.ingestion_timeout)
             except asyncio.TimeoutError:
-                # No more events in short timeout, check if we have enough
-                if ingestion_events:
-                    break
-                continue
+                # Timed out waiting for more events; proceed to evaluation
+                pass
 
-        if not ingestion_events:
-            raise RuntimeError(
-                f"No ingestion events received for expected obsid {expected_obsid}. "
-                "This usually means there is a problem with the image ingestion."
+            if not ingestion_events:
+                raise RuntimeError(
+                    "No ingestion events received for the latest exposure. This usually "
+                    "means there is a problem with the image ingestion."
+                )
+
+            if failed_ingestions:
+                error_details = [
+                    f"raft={event.raft}, sensor={event.sensor}, statusCode={event.statusCode}, "
+                    f"description='{event.description}'"
+                    for event in failed_ingestions
+                ]
+                raise RuntimeError(
+                    f"Image ingestion failed for {len(failed_ingestions)} raft/sensor "
+                    f"combinations: {'; '.join(error_details)}."
+                )
+
+            ingest_event_time = get_topic_time_utc(ingestion_events[0])
+            self.log.info(
+                f"Successfully verified ingestion of {len(unique_pairs)} "
+                f"raft/sensor combinations for obsid {observed_obsid} "
+                f"at {ingest_event_time} UT."
             )
-
-        # Check that all ingestion events have statusCode == 0
-        failed_ingestions = [
-            event for event in ingestion_events if event.statusCode != 0
-        ]
-
-        if failed_ingestions:
-            error_details = [
-                f"raft={event.raft}, sensor={event.sensor}, "
-                f"statusCode={event.statusCode}, description='{event.description}'"
-                for event in failed_ingestions
-            ]
-            raise RuntimeError(
-                f"Image ingestion failed for {len(failed_ingestions)} "
-                f"raft/sensor combinations: {'; '.join(error_details)}."
-            )
-
-        # Log successful ingestion
-        ingest_event_time = get_topic_time_utc(ingestion_events[0])
-        self.log.info(
-            f"Successfully verified ingestion of {len(ingestion_events)} raft/sensor "
-            f"combinations for obsid {expected_obsid} at {ingest_event_time} UT."
-        )
 
     async def exercise_filter_changes(self):
         """Exercise the filter exchanger system by cycling through filters.
