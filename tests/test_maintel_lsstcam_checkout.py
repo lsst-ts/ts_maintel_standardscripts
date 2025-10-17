@@ -39,10 +39,9 @@ class TestLsstCamCheckout(
         self.ingest_event_status = 0
         self.current_filter = "u"
         self.available_filters = ["u", "g", "r", "i", "z"]
+        # Fixed synthetic DAYOBS used to build realistic LSSTCam obsids
+        self.dayobs = 20251101
 
-        # Track expected obsids for each exposure
-        self.expected_bias_obsid = "MC_O_20250101_000001"
-        self.expected_engtest_obsid = "MC_O_20250101_000002"
         return super().setUp()
 
     async def basic_make_script(self, index):
@@ -66,9 +65,7 @@ class TestLsstCamCheckout(
         # Use current time to avoid stale event warnings
         current_time = utils.current_tai()
 
-        # Return an event for whichever obsid is currently being checked
-        # Script sets self.current_expected_obsid when checking for ingestion
-        obsid = getattr(self, "current_expected_obsid", self.expected_bias_obsid)
+        obsid = getattr(self, "current_expected_obsid", f"MC_O_{self.dayobs}_000001")
 
         # Track how many events we've returned for this obsid
         event_count_key = f"event_count_{obsid}"
@@ -120,20 +117,20 @@ class TestLsstCamCheckout(
                 "evt_imageInOODS.flush": unittest.mock.Mock(),
             }
         )
-        # Patch the _verify_image_ingestion method to set expected obsid
-        original_verify = self.script._verify_image_ingestion
 
-        async def patched_verify(expected_obsid):
-            # Set the obsid that our mock should return
-            self.current_expected_obsid = expected_obsid
-            # Reset event counter for this obsid
-            event_count_key = f"event_count_{expected_obsid}"
-            setattr(self, event_count_key, 0)
-            return await original_verify(expected_obsid)
+        # Reset the expected obsid and raft/sensor counter on each flush so
+        # that each exposure's ingestion is tracked independently.
+        self.flush_count = 0
 
-        # Create a mock that wraps our patched function
-        self.script._verify_image_ingestion = unittest.mock.AsyncMock(
-            side_effect=patched_verify
+        def _flush_side_effect():
+            self.flush_count += 1
+            # LSSTCam obsid: MC_O_<DAYOBS>_<VISIT>
+            obsid = f"MC_O_{self.dayobs}_{self.flush_count:06d}"
+            self.current_expected_obsid = obsid
+            setattr(self, f"event_count_{obsid}", 0)
+
+        self.script.lsstcam.rem.mtoods.evt_imageInOODS.flush.side_effect = (
+            _flush_side_effect
         )
 
         yield
@@ -284,12 +281,11 @@ class TestLsstCamCheckout(
             self.script.lsstcam.take_engtest.assert_awaited_once()
             self.script.lsstcam.assert_all_enabled.assert_called_once()
 
-            # Verify image ingestion was called twice (once for each image)
-            expected_calls = [
-                unittest.mock.call(expected_obsid=self.expected_bias_obsid),
-                unittest.mock.call(expected_obsid=self.expected_engtest_obsid),
-            ]
-            self.script._verify_image_ingestion.assert_has_calls(expected_calls)
+            # Verify ingestion helper was triggered for each exposure
+            flush_mock = self.script.lsstcam.rem.mtoods.evt_imageInOODS.flush
+            assert flush_mock.call_count == 2
+            next_mock = self.script.lsstcam.rem.mtoods.evt_imageInOODS.next
+            assert next_mock.await_count > 0
 
     async def test_run_with_filter_exercise(self):
         """Test checkout with filter exercise"""
@@ -384,12 +380,14 @@ class TestLsstCamCheckout(
         async with self.make_script(), self.setup_mocks():
             await self.configure_script()
 
-            # Simulates a timeout condition in ingestion verification
-            self.script._verify_image_ingestion = unittest.mock.AsyncMock(
-                side_effect=RuntimeError(
-                    "No ingestion events received for expected obsid"
-                )
-            )
+            @contextlib.asynccontextmanager
+            async def failing_ingestion(*args, **kwargs):
+                self.script.lsstcam.rem.mtoods.evt_imageInOODS.flush()
+                # Simulate taking the image inside the context
+                yield
+                raise RuntimeError("No ingestion events received for expected obsid")
+
+            self.script.ingested_image = failing_ingestion
 
             with pytest.raises(AssertionError):
                 await self.run_script()
