@@ -65,7 +65,7 @@ class TestRecoverFromControllerFault(
 
             self.script.mtcs.rem.mtdome.configure_mock(
                 **{
-                    "logevent_azEnabled.next.return_value": mock_az_enabled,
+                    "evt_azEnabled.next.return_value": mock_az_enabled,
                 }
             )
             yield
@@ -116,7 +116,7 @@ class TestRecoverFromControllerFault(
 
             self.script.mtcs.check_dome_following.assert_awaited_once()
             self.script.mtcs.disable_dome_following.assert_awaited_once()
-            self.script.mtcs.rem.mtdome.cmd_exitFault.set.assert_awaited_once_with(
+            self.script.mtcs.rem.mtdome.cmd_exitFault.set_start.assert_awaited_once_with(
                 subSystemIds=SubSystemId.AMCS, timeout=self.script.mtcs.fast_timeout
             )
             self.script.mtcs.slew_dome_to.assert_awaited_once_with(az=target_az)
@@ -145,7 +145,7 @@ class TestRecoverFromControllerFault(
 
             self.script.mtcs.check_dome_following.assert_awaited_once()
             self.script.mtcs.disable_dome_following.assert_not_awaited()
-            self.script.mtcs.rem.mtdome.cmd_exitFault.set.assert_awaited_once_with(
+            self.script.mtcs.rem.mtdome.cmd_exitFault.set_start.assert_awaited_once_with(
                 subSystemIds=SubSystemId.AMCS, timeout=self.script.mtcs.fast_timeout
             )
             self.script.mtcs.slew_dome_to.assert_awaited_once_with(az=target_az)
@@ -168,7 +168,7 @@ class TestRecoverFromControllerFault(
 
             self.script.mtcs.rem.mtdome.configure_mock(
                 **{
-                    "cmd_exitFault.set.side_effect": [
+                    "cmd_exitFault.set_start.side_effect": [
                         Exception("MOCK Exception"),
                         None,
                     ],
@@ -186,7 +186,7 @@ class TestRecoverFromControllerFault(
                 )
                 for i in range(2)
             ]
-            self.script.mtcs.rem.mtdome.cmd_exitFault.set.assert_has_awaits(
+            self.script.mtcs.rem.mtdome.cmd_exitFault.set_start.assert_has_awaits(
                 expected_exitFalut_calls
             )
             # Check slew dome attempts
@@ -225,7 +225,7 @@ class TestRecoverFromControllerFault(
                 )
                 for i in range(2)
             ]
-            self.script.mtcs.rem.mtdome.cmd_exitFault.set.assert_has_awaits(
+            self.script.mtcs.rem.mtdome.cmd_exitFault.set_start.assert_has_awaits(
                 expected_exitFalut_calls
             )
             # Check slew dome attempts
@@ -249,7 +249,7 @@ class TestRecoverFromControllerFault(
 
             self.script.mtcs.rem.mtdome.configure_mock(
                 **{
-                    "cmd_exitFault.set.side_effect": Exception("MOCK Exception"),
+                    "cmd_exitFault.set_start.side_effect": Exception("MOCK Exception"),
                 }
             )
 
@@ -265,7 +265,7 @@ class TestRecoverFromControllerFault(
                 )
                 for i in range(self.script.MAX_ATTEMPTS)
             ]
-            self.script.mtcs.rem.mtdome.cmd_exitFault.set.assert_has_awaits(
+            self.script.mtcs.rem.mtdome.cmd_exitFault.set_start.assert_has_awaits(
                 expected_exitFalut_calls
             )
             # Check slew dome attempts
@@ -298,7 +298,7 @@ class TestRecoverFromControllerFault(
                 )
                 for i in range(self.script.MAX_ATTEMPTS)
             ]
-            self.script.mtcs.rem.mtdome.cmd_exitFault.set.assert_has_awaits(
+            self.script.mtcs.rem.mtdome.cmd_exitFault.set_start.assert_has_awaits(
                 expected_exitFalut_calls
             )
             # Check slew dome attempts
@@ -342,7 +342,7 @@ class TestRecoverFromControllerFault(
                 )
                 for i in range(self.script.MAX_ATTEMPTS)
             ]
-            self.script.mtcs.rem.mtdome.cmd_exitFault.set.assert_has_awaits(
+            self.script.mtcs.rem.mtdome.cmd_exitFault.set_start.assert_has_awaits(
                 expected_exitFalut_calls
             )
             # Check slew dome attempts
