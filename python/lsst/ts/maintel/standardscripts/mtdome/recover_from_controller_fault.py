@@ -133,7 +133,7 @@ class RecoverFromControllerFault(salobj.BaseScript):
         for attempt in range(1, self.MAX_ATTEMPTS + 1):
             self.log.info(f"Attempt {attempt}: Sending exitFault command...")
             try:
-                await self.mtcs.rem.mtdome.cmd_exitFault.set(
+                await self.mtcs.rem.mtdome.cmd_exitFault.set_start(
                     subSystemIds=self.exitFault_subSystemIds,
                     timeout=self.mtcs.fast_timeout,
                 )
@@ -157,7 +157,7 @@ class RecoverFromControllerFault(salobj.BaseScript):
         await self.mtcs.enable_dome_following()
 
         if not recovery_success:
-            az_enabled = await self.mtcs.rem.mtdome.logevent_azEnabled.next(
+            az_enabled = await self.mtcs.rem.mtdome.evt_azEnabled.next(
                 flush=True, timeout=self.mtcs.fast_timeout
             )
 
