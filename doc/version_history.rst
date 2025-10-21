@@ -8,6 +8,26 @@ Version History
 
 .. towncrier release notes start
 
+v0.4.0 (2025-10-20)
+===================
+
+New Features
+------------
+
+- Add script to recover the ``MTDome`` from a low-level controller fault that prevents movement. (`DM-50444 <https://rubinobs.atlassian.net//browse/DM-50444>`_)
+- Add a `prepare_for/onsky.py` script that prepares the telescope and dome for on-sky operations. (`DM-51325 <https://rubinobs.atlassian.net//browse/DM-51325>`_)
+- Add ``get_available_imgtypes`` implementation to ``TakeImageComCam`` and ``TakeImageLSSTCam`` (`DM-51409 <https://rubinobs.atlassian.net//browse/DM-51409>`_)
+- Update ``TakeImageAnyCam`` to read available image types from ``LSSTCam`` and ``ComCam`` classes. (`DM-51409 <https://rubinobs.atlassian.net//browse/DM-51409>`_)
+- - In `base_close_loop.py`, add an option to run closed loop at a fixed `az`, `el`` and `rot`. (`DM-52297 <https://rubinobs.atlassian.net//browse/DM-52297>`_)
+- Implement guider selection in track_target_and_take_image script. (`OSW-964 <https://rubinobs.atlassian.net//browse/OSW-964>`_)
+
+
+Bug Fixes
+---------
+
+- In mtdome/recover_from_controller_fault.py, fix usage for both 'cmd_exitFault' call and 'evt_azEnabled' status query. (`DM-52592 <https://rubinobs.atlassian.net//browse/DM-52592>`_)
+
+
 v0.3.0 (2025-08-25)
 ===================
 
