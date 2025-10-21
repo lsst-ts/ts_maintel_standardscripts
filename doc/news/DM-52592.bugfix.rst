@@ -1,0 +1,1 @@
+In mtdome/recover_from_controller_fault.py, fix usage for both 'cmd_exitFault' call and 'evt_azEnabled' status query.

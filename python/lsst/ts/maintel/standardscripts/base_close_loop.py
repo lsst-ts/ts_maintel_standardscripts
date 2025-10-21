@@ -209,6 +209,32 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                       type: string
                       enum: {[dof_name.name for dof_name in DOFName]}
                 default: [1, 2, 3, 4, 5]
+              az:
+                description: >-
+                  Azimuth (deg). Intended to be used alongside `el`. If no
+                  value is provided and `el` is specified, the current azimuth
+                  will be used with the provided elevation.
+                anyOf:
+                  - type: number
+                  - type: "null"
+                default: null
+              el:
+                description: >-
+                  Elevation (deg). If no
+                  value is provided and `az` is specified, the current
+                  elevation will be used with the provided azimuth.
+                anyOf:
+                  - type: number
+                  - type: "null"
+                default: null
+              rot:
+                description: >-
+                    Rotation (deg). If no value is provided, the current
+                    rotation will be used.
+                anyOf:
+                  - type: number
+                  - type: "null"
+                default: null
               gain_sequence:
                 description: >-
                     Gain sequence to apply to the offsets.
@@ -306,6 +332,10 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
         self.gain_sequence = config.gain_sequence
         self.truncation_index = config.truncation_index
         self.zn_selected = config.zn_selected
+
+        self.azimuth = config.az
+        self.elevation = config.el
+        self.rotation = config.rot
 
         if hasattr(config, "ignore"):
             self.mtcs.disable_checks_for_components(components=config.ignore)
@@ -563,6 +593,23 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
         """
 
         for i in range(self.max_iter):
+            if all(
+                v is not None for v in [self.azimuth, self.elevation, self.rotation]
+            ):
+                try:
+                    await self.mtcs.point_azel(
+                        az=self.azimuth,
+                        el=self.elevation,
+                        rot_tel=self.rotation,
+                    )
+                    await self.mtcs.start_tracking()
+                except RuntimeError as e:
+                    raise RuntimeError(f"Malformed coordinates: {e}")
+            else:
+                self.log.debug(
+                    "Not ratcheting the telescope, as az, el and rot are not provided."
+                )
+
             self.log.debug(f"Closed Loop iteration {i + 1} starting...")
 
             if checkpoint:
