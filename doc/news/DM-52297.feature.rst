@@ -1,1 +1,0 @@
-- In `base_close_loop.py`, add an option to run closed loop at a fixed `az`, `el`` and `rot`.
