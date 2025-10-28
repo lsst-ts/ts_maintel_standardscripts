@@ -1,0 +1,1 @@
+Updated ``TakeAOSSequenceLSSTCam`` to configure TCS synchronization for the camera.
