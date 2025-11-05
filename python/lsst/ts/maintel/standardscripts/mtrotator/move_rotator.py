@@ -80,6 +80,13 @@ class MoveRotator(BaseBlockScript):
                     angle.
                 type: boolean
                 default: true
+            ignore:
+                description: >-
+                  CSCs from the group to ignore in status check. Name must
+                  match those in self.group.components, e.g.; hexapod_1.
+                type: array
+                items:
+                  type: string
         required:
             - angle
         additionalProperties: false
@@ -104,10 +111,15 @@ class MoveRotator(BaseBlockScript):
         config : `dict`
             Dictionary containing the configuration parameters.
         """
+        self.config = config
+
         await self.configure_tcs()
 
         self.target_angle = config.angle
         self.wait_for_complete = config.wait_for_complete
+
+        if hasattr(self.config, "ignore"):
+            self.mtcs.disable_checks_for_components(components=config.ignore)
 
         await super().configure(config=config)
 
