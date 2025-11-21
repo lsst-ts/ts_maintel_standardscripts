@@ -1,0 +1,1 @@
+In ``disable_hexapod_compensation_mode.py``, add intended usage to ``MTCS`` class to limit resources allocated.
