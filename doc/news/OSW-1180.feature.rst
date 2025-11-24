@@ -1,0 +1,1 @@
+configure roi size and roi time integration in track_target_and_take_image_lsstcam.py script
