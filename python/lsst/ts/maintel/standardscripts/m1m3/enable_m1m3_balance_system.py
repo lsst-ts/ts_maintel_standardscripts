@@ -23,7 +23,7 @@ __all__ = ["EnableM1M3BalanceSystem"]
 
 import time
 
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
 
 
@@ -57,7 +57,7 @@ class EnableM1M3BalanceSystem(BaseBlockScript):
 
     async def configure(self, config):
         if self.mtcs is None:
-            self.mtcs = MTCS(self.domain, log=self.log)
+            self.mtcs = MTCS(self.domain, log=self.log, intended_usage=MTCSUsages.Slew)
             await self.mtcs.start_task
         await super().configure(config=config)
 
