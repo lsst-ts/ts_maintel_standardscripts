@@ -33,6 +33,7 @@ from lsst.ts import salobj, standardscripts
 from lsst.ts.maintel.standardscripts.track_target_and_take_image_lsstcam import (
     TrackTargetAndTakeImageLSSTCam,
 )
+from lsst.ts.observatory.control import ROI, ROICommon, ROISpec
 from lsst.ts.observatory.control.utils import RotType
 from lsst.ts.xml.enums.MTAOS import ClosedLoopState
 
@@ -152,19 +153,13 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                     use_wavefront=False,
                     use_science=False,
                 ):
-                    roi_yaml = (
-                        "roi_spec:\n"
-                        "  common:\n"
-                        "    rows: 111\n"
-                        "    cols: 111\n"
-                        "    integration_time_millis: 66\n"
-                        "  roi:\n"
-                        "    R00SG0:\n"
-                        "      segment: 7\n"
-                        "      start_row: 10\n"
-                        "      start_col: 20\n"
+                    roi_spec = ROISpec(
+                        common=ROICommon(
+                            rows=111, cols=111, integration_time_millis=66
+                        ),
+                        roi=dict(R00SG0=ROI(segment=7, start_row=10, start_col=20)),
                     )
-                    return roi_yaml, None
+                    return roi_spec, None
 
             with unittest.mock.patch(
                 "lsst.ts.maintel.standardscripts.track_target_and_take_image_lsstcam.GuiderROIs",
@@ -177,6 +172,8 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                 self.script.lsstcam.init_guider.assert_awaited()
                 args, kwargs = self.script.lsstcam.init_guider.await_args
                 roi_spec = kwargs.get("roi_spec") if kwargs else args[0]
+
+                print(f"{roi_spec=}")
 
                 assert roi_spec.common.rows == 111
                 assert roi_spec.common.cols == 111
@@ -257,19 +254,15 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                 ):
                     captured_params["roi_size"] = roi_size
                     captured_params["roi_time"] = roi_time
-                    roi_yaml = (
-                        f"roi_spec:\n"
-                        f"  common:\n"
-                        f"    rows: {roi_size}\n"
-                        f"    cols: {roi_size}\n"
-                        f"    integration_time_millis: {roi_time}\n"
-                        f"  roi:\n"
-                        f"    R00SG0:\n"
-                        f"      segment: 7\n"
-                        f"      start_row: 10\n"
-                        f"      start_col: 20\n"
+                    roi_spec = ROISpec(
+                        common=ROICommon(
+                            rows=roi_size,
+                            cols=roi_size,
+                            integration_time_millis=roi_time,
+                        ),
+                        roi=dict(R00SG0=ROI(segment=7, start_row=10, start_col=20)),
                     )
-                    return roi_yaml, None
+                    return roi_spec, None
 
             with unittest.mock.patch(
                 "lsst.ts.maintel.standardscripts.track_target_and_take_image_lsstcam.GuiderROIs",
