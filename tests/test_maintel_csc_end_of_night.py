@@ -161,6 +161,8 @@ class TestCscEndOfNight(
             # Enable checks for LSSTCam components
             for cmp in self.script.lsstcam.components_attr:
                 setattr(self.script.lsstcam.check, cmp, True)
+
+            await self.script.start_task
             yield
 
     async def test_components(self):
