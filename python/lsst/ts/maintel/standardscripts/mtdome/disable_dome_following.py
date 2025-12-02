@@ -22,7 +22,7 @@
 __all__ = ["DisableDomeFollowing"]
 
 from lsst.ts import salobj
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 
 
 class DisableDomeFollowing(salobj.BaseScript):
@@ -53,7 +53,9 @@ class DisableDomeFollowing(salobj.BaseScript):
 
     async def configure(self, config):
         if self.mtcs is None:
-            self.mtcs = MTCS(domain=self.domain, log=self.log)
+            self.mtcs = MTCS(
+                domain=self.domain, log=self.log, intended_usage=MTCSUsages.Slew
+            )
             await self.mtcs.start_task
 
     def set_metadata(self, metadata):
