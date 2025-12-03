@@ -24,7 +24,7 @@ __all__ = ["DisableHexapodCompensationMode"]
 import asyncio
 
 import yaml
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
 
 
@@ -59,7 +59,9 @@ class DisableHexapodCompensationMode(BaseBlockScript):
     async def configure_tcs(self) -> None:
         if self.mtcs is None:
             self.log.debug("Creating MTCS.")
-            self.mtcs = MTCS(domain=self.domain, log=self.log)
+            self.mtcs = MTCS(
+                domain=self.domain, log=self.log, intended_usage=MTCSUsages.Slew
+            )
             await self.mtcs.start_task
         else:
             self.log.debug("MTCS already defined, skipping.")

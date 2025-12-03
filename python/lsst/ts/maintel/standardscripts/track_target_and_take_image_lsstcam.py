@@ -24,13 +24,11 @@ __all__ = ["TrackTargetAndTakeImageLSSTCam"]
 import asyncio
 
 import astropy.units as u
-import yaml
 from astropy.coordinates import Angle
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.utils import RotType
 from lsst.ts.observatory.control.utils.extras.guider_roi import GuiderROIs
-from lsst.ts.observatory.control.utils.roi_spec import ROISpec
 from lsst.ts.standardscripts.base_track_target_and_take_image import (
     BaseTrackTargetAndTakeImage,
 )
@@ -145,7 +143,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
         )
 
         guider_rois = GuiderROIs(log=self.log)
-        config_text, _ = guider_rois.get_guider_rois(
+        roi_spec, _ = guider_rois.get_guider_rois(
             ra=ra_deg,
             dec=dec_deg,
             sky_angle=sky_angle,
@@ -158,8 +156,6 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
             use_science=False,
         )
 
-        roi_spec_dict = yaml.safe_load(config_text)["roi_spec"]
-        roi_spec = ROISpec.parse_obj(roi_spec_dict)
         await self.lsstcam.init_guider(roi_spec=roi_spec)
 
     async def load_playlist(self):

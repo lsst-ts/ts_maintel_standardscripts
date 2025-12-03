@@ -1,0 +1,2 @@
+In ``track_target_and_take_image_lsstcam.py``, fix how roi spec is passed to the init guider method.
+Originally the roi data was a yaml string but we updated the method to return an ROISpec object.

@@ -21,10 +21,15 @@
 
 __all__ = ["TakeImageLSSTCam"]
 
+import asyncio
+
+import astropy.units as u
 import yaml
+from astropy.coordinates import Angle
 from lsst.ts import salobj
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.observatory.control.utils.extras.guider_roi import GuiderROIs
 from lsst.ts.observatory.control.utils.roi_spec import ROISpec
 from lsst.ts.standardscripts.base_take_image import BaseTakeImage
 
@@ -55,6 +60,7 @@ class TakeImageLSSTCam(BaseTakeImage):
         self.instrument_setup_time = 0.0
 
         self.instrument_name = "LSSTCam"
+        self.roi_spec = None
 
     @property
     def tcs(self):
@@ -177,7 +183,59 @@ class TakeImageLSSTCam(BaseTakeImage):
         if hasattr(config, "ignore") and config.ignore:
             self.mtcs.disable_checks_for_components(components=config.ignore)
 
+        if (roi_spec := getattr(self.config, "roi_spec", None)) is not None:
+            self.roi_spec = ROISpec.parse_obj(roi_spec)
+        else:
+            try:
+                self.roi_spec = await self.get_guider_roi()
+            except Exception as e:
+                self.log.info(
+                    f"Failed to get guider ROI, ignoring. Feature still under development. {e}",
+                    exc_info=True,
+                )
+
         await super().configure(config=config)
+
+    async def get_guider_roi(self):
+        """Retrieve the guider roi from the current telescope position."""
+        try:
+            current_target = await self.mtcs.rem.mtptg.evt_currentTarget.aget(
+                timeout=self.mtcs.fast_timeout
+            )
+            target_ra_angle = Angle(current_target.ra, unit=u.rad).to(u.deg)
+            target_dec_angle = Angle(current_target.declination, unit=u.rad).to(u.deg)
+            sky_angle = Angle(current_target.rotAngle, unit=u.deg)
+            self.log.info(
+                f"Current target: ra={target_ra_angle}, dec={target_dec_angle}, sky_angle={sky_angle}."
+            )
+        except asyncio.TimeoutError:
+            self.log.info(
+                "Failed to retrieve current target coordinates.Continuing without guider roi."
+            )
+            return None
+
+        current_filter = await self._lsstcam.get_current_filter()
+
+        band = current_filter[0]
+
+        roi_size = self._lsstcam.DEFAULT_GUIDER_ROI_ROWS
+        roi_time_ms = self._lsstcam.DEFAULT_GUIDER_ROI_TIME_MS
+
+        guider_rois = GuiderROIs(log=self.log)
+        roi_spec, _ = guider_rois.get_guider_rois(
+            ra=target_ra_angle.to(u.deg).value,
+            dec=target_dec_angle.to(u.deg).value,
+            sky_angle=sky_angle.to(u.deg).value,
+            roi_size=roi_size,
+            roi_time=roi_time_ms,
+            band=band,
+            npix_edge=50,
+            use_guider=True,
+            use_wavefront=False,
+            use_science=False,
+        )
+
+        return roi_spec
 
     def get_instrument_name(self):
         return self.instrument_name
@@ -224,8 +282,7 @@ class TakeImageLSSTCam(BaseTakeImage):
                 )
 
     async def run(self):
-        if (roi_spec := getattr(self.config, "roi_spec", None)) is not None:
-            roi_spec = ROISpec.parse_obj(roi_spec)
-            await self.camera.init_guider(roi_spec=roi_spec)
+        if self.roi_spec is not None:
+            await self.camera.init_guider(roi_spec=self.roi_spec)
 
         await super(TakeImageLSSTCam, self).run()
