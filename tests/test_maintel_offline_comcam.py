@@ -36,8 +36,12 @@ class TestOfflineComCam(
     standardscripts.BaseScriptTestCase, unittest.IsolatedAsyncioTestCase
 ):
     async def basic_make_script(self, index):
-        self.script = OfflineComCam(index=index)
+        self.script = OfflineComCam(
+            index=index,
+        )
         self.comcam_mock = ComCamMock()
+
+        await self.script.start_task
 
         return (self.script, self.comcam_mock)
 
