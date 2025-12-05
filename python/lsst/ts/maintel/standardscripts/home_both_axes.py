@@ -26,8 +26,9 @@ import time
 
 import yaml
 from lsst.ts import salobj
-from lsst.ts.idl.enums.Script import ScriptState
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.xml.enums.MTM1M3 import DetailedStates
+from lsst.ts.xml.enums.Script import ScriptState
 
 
 class HomeBothAxes(salobj.BaseScript):
@@ -57,7 +58,6 @@ class HomeBothAxes(salobj.BaseScript):
     def __init__(self, index, add_remotes: bool = True):
         super().__init__(index=index, descr="Home both TMA axis.")
 
-        self.disable_m1m3_force_balance = False
         self.home_both_axes_timeout = 300.0  # timeout to home both MTMount axes.
         self.mtcs = None
         self.final_home_position = None
@@ -75,7 +75,12 @@ class HomeBothAxes(salobj.BaseScript):
                     description: Ignore the m1m3 component? (Deprecated property)
                     type: boolean
                 disable_m1m3_force_balance:
-                    description: Disable m1m3 force balance?
+                    description: >-
+                        Disable the M1M3 force balance system before homing.
+                        This configuration option is deprecated and will be
+                        removed in a future release; the script now always
+                        ensures the force balance system is enabled before
+                        homing.
                     type: boolean
                     default: false
                 final_home_position:
@@ -114,47 +119,100 @@ class HomeBothAxes(salobj.BaseScript):
         if hasattr(config, "ignore_m1m3"):
             self.log.warning(
                 "The 'ignore_m1m3' configuration property is deprecated and will be removed"
-                " in future releases. Please use 'disable_m1m3_force_balance' instead.",
-                DeprecationWarning,
+                " in future releases.",
                 stacklevel=2,
+                exc_info=DeprecationWarning(),
             )
-        self.disable_m1m3_force_balance = config.disable_m1m3_force_balance
+        if hasattr(config, "disable_m1m3_force_balance"):
+            self.log.warning(
+                "The 'disable_m1m3_force_balance' configuration property is deprecated "
+                "and will be removed in future releases. The script now always enables "
+                "the M1M3 force balance system before homing.",
+                stacklevel=2,
+                exc_info=DeprecationWarning(),
+            )
 
         if hasattr(config, "final_home_position"):
             self.final_home_position = config.final_home_position
 
-        if self.disable_m1m3_force_balance and (self.final_home_position is not None):
-            raise ValueError(
-                "Both 'disable_m1m3_force_balance' and 'final_home_position' are set. "
-                "These options are not intended to be used together."
-            )
-
     def set_metadata(self, metadata):
         metadata.duration = self.home_both_axes_timeout
 
+    async def assert_m1m3_raised(self) -> None:
+        """Assert that M1M3 is raised (ACTIVE or ACTIVEENGINEERING).
+
+        Raises
+        ------
+        RuntimeError
+            If M1M3 is not in a raised detailed state.
+        """
+        detailed_state = DetailedStates(
+            (
+                await self.mtcs.rem.mtm1m3.evt_detailedState.aget(
+                    timeout=self.mtcs.fast_timeout
+                )
+            ).detailedState
+        )
+        if detailed_state not in {
+            DetailedStates.ACTIVE,
+            DetailedStates.ACTIVEENGINEERING,
+        }:
+            raise RuntimeError(
+                "M1M3 mirror is not raised (detailed state is "
+                f"{detailed_state.name}). Please raise M1M3 before homing MTMount. "
+                "If you are unable to raise M1M3 at the current TMA position, you "
+                "might have to move TMA to an appropriate range and raise the mirror "
+                "before homing. See BLOCK-T250 for more information."
+            )
+
+    async def get_current_azimuth(self):
+        mount_az = await self.mtcs.rem.mtmount.tel_azimuth.next(
+            flush=True,
+            timeout=self.mtcs.fast_timeout,
+        )
+        return mount_az.actualPosition
+
+    async def get_current_elevation(self):
+        mount_el = await self.mtcs.rem.mtmount.tel_elevation.next(
+            flush=True,
+            timeout=self.mtcs.fast_timeout,
+        )
+        return mount_el.actualPosition
+
     async def run(self):
-        if self.disable_m1m3_force_balance:
-            await self.checkpoint("Disable M1M3 balance system.")
-            await self.mtcs.disable_m1m3_balance_system()
+        await self.assert_m1m3_raised()
+
+        self.log.info("Ensuring M1M3 force balance system is enabled before homing.")
+        await self.mtcs.enable_m1m3_balance_system()
 
         await self.checkpoint("Homing Both Axes at current position")
         start_time = time.time()
-        await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
-            timeout=self.home_both_axes_timeout
-        )
+        async with self.mtcs.m1m3_booster_valve():
+            await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
+                timeout=self.home_both_axes_timeout
+            )
         end_time = time.time()
         elapsed_time = end_time - start_time
-
         self.log.info(f"Homing both axes took {elapsed_time:.2f} seconds")
 
-        if not self.disable_m1m3_force_balance:
-            self.log.info("Enabling M1M3 balance system.")
-            await self.mtcs.enable_m1m3_balance_system()
-
         if self.final_home_position is not None:
-            await self.checkpoint("Slewing TMA to final home position")
+
+            self.log.info(
+                f"Slewing azimuth only to: {self.final_home_position['az']} deg."
+            )
+            current_el = await self.get_current_elevation()
             await self.mtcs.point_azel(
                 az=self.final_home_position["az"],
+                el=current_el,
+                wait_dome=False,
+            )
+
+            self.log.info(
+                f"Slewing elevation only to: {self.final_home_position['el']} deg."
+            )
+            current_az = await self.get_current_azimuth()
+            await self.mtcs.point_azel(
+                az=current_az,
                 el=self.final_home_position["el"],
                 wait_dome=False,
             )
@@ -163,12 +221,12 @@ class HomeBothAxes(salobj.BaseScript):
 
             await self.checkpoint("Homing Both Axes at final position")
             start_time = time.time()
-            await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
-                timeout=self.home_both_axes_timeout
-            )
+            async with self.mtcs.m1m3_booster_valve():
+                await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
+                    timeout=self.home_both_axes_timeout
+                )
             end_time = time.time()
             elapsed_time = end_time - start_time
-
             self.log.info(f"Homing both axes took {elapsed_time:.2f} seconds")
 
     async def cleanup(self):
