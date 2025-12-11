@@ -187,23 +187,6 @@ class TakeImageLSSTCam(BaseTakeImage):
         if hasattr(config, "ignore") and config.ignore:
             self.mtcs.disable_checks_for_components(components=config.ignore)
 
-        set_roi = config.set_roi
-        self.log.info(f"{set_roi=}.")
-
-        if set_roi:
-            if (roi_spec := getattr(self.config, "roi_spec", None)) is not None:
-                self.roi_spec = ROISpec.parse_obj(roi_spec)
-            else:
-                try:
-                    self.roi_spec = await self.get_guider_roi()
-                except Exception as e:
-                    self.log.info(
-                        f"Failed to get guider ROI, ignoring. Feature still under development. {e}",
-                        exc_info=True,
-                    )
-        else:
-            self.roi_spec = None
-
         await super().configure(config=config)
 
     async def get_guider_roi(self):
@@ -292,6 +275,24 @@ class TakeImageLSSTCam(BaseTakeImage):
                 )
 
     async def run(self):
+
+        set_roi = self.config.set_roi
+        self.log.info(f"{set_roi=}.")
+
+        if set_roi:
+            if (roi_spec := getattr(self.config, "roi_spec", None)) is not None:
+                self.roi_spec = ROISpec.parse_obj(roi_spec)
+            else:
+                try:
+                    self.roi_spec = await self.get_guider_roi()
+                except Exception as e:
+                    self.log.info(
+                        f"Failed to get guider ROI, ignoring. Feature still under development. {e}",
+                        exc_info=True,
+                    )
+        else:
+            self.roi_spec = None
+
         if self.roi_spec is not None:
             await self.camera.init_guider(roi_spec=self.roi_spec)
 
