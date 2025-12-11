@@ -187,6 +187,29 @@ class TestTakeImageComCam(
             mock_ready_to_take_data=mock_ready, expect_exception=RuntimeError
         )
 
+    def test_schema_inherits_base_required(self):
+        """Test that the schema inherits 'required' fields from the
+        base class.
+
+        BaseTakeImage requires 'image_type'. This test verifies that the
+        derived class schema includes this requirement.
+        """
+        # BaseTakeImage.get_schema() cannot be called directly because
+        # get_available_imgtypes() is abstract. Instead, we verify that
+        # the derived schema contains the known base required fields.
+        base_required = {"image_type"}  # Known required field from BaseTakeImage
+
+        derived_schema = TakeImageComCam.get_schema()
+
+        self.assertIn("required", derived_schema)
+
+        derived_required = set(derived_schema["required"])
+        self.assertTrue(
+            base_required.issubset(derived_required),
+            f"Derived schema is missing base required fields: "
+            f"{base_required - derived_required}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
