@@ -36,6 +36,26 @@ class TestTakeStutteredLSSTCam(
 
         return self.script
 
+    def test_schema_inherits_base_required(self):
+        """Test that the schema inherits 'required' fields from the
+        base class."""
+        from lsst.ts.standardscripts.base_take_stuttered import BaseTakeStuttered
+
+        base_schema = BaseTakeStuttered.get_schema()
+        derived_schema = TakeStutteredLSSTCam.get_schema()
+
+        self.assertIn("required", base_schema)
+
+        self.assertIn("required", derived_schema)
+
+        base_required = set(base_schema["required"])
+        derived_required = set(derived_schema["required"])
+        self.assertTrue(
+            base_required.issubset(derived_required),
+            f"Derived schema is missing base required fields: "
+            f"{base_required - derived_required}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

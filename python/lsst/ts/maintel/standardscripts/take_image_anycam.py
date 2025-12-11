@@ -264,6 +264,11 @@ class TakeImageAnyCam(BaseBlockScript):
 
         base_schema_dict = super().get_schema()
 
+        if "required" in base_schema_dict:
+            schema_dict["required"] = list(
+                set(schema_dict.get("required", [])) | set(base_schema_dict["required"])
+            )
+
         for properties in base_schema_dict["properties"]:
             schema_dict["properties"][properties] = base_schema_dict["properties"][
                 properties
