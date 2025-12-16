@@ -68,6 +68,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
         self.tolerance_angle_filter_change = 1e-2
 
         self.mtcs = MTCS(self.domain, intended_usage=mtcs_usage, log=self.log)
+        self.mtcs.check.mtm1m3 = False
 
         self.lsstcam = LSSTCam(
             self.domain,
