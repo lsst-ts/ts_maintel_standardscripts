@@ -28,6 +28,7 @@ from .home_dome import *
 from .offset_dome import *
 from .open_dome import *
 from .park_dome import *
+from .partially_open_and_close_shutter import *
 from .recover_from_controller_fault import *
 from .set_operational_mode_dome import *
 from .slew_dome import *
