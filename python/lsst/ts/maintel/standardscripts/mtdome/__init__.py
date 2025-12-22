@@ -29,5 +29,6 @@ from .offset_dome import *
 from .open_dome import *
 from .park_dome import *
 from .recover_from_controller_fault import *
+from .set_operational_mode_dome import *
 from .slew_dome import *
 from .unpark_dome import *
