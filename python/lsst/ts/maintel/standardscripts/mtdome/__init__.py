@@ -23,6 +23,7 @@ from .close_dome import *
 from .crawl_az import *
 from .disable_dome_following import *
 from .enable_dome_following import *
+from .exit_fault_dome import *
 from .home_dome import *
 from .offset_dome import *
 from .open_dome import *
