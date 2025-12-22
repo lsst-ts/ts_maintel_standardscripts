@@ -1,0 +1,1 @@
+Add ``mtdome/set_operational_mode_dome.py`` helper script for the dome handover procedure.
