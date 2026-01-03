@@ -1,2 +1,0 @@
-Updated ``TrackTargetAndTakeImageLSSTCam`` script to add a feature to allow running a few additional exposures for closed loop when there is a filter change.
-At each iteration it takes 2 exposures and wait until the correction for the first exposure is applied before continuing.

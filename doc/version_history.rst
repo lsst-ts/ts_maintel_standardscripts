@@ -8,6 +8,34 @@ Version History
 
 .. towncrier release notes start
 
+v0.5.0 (2026-01-02)
+===================
+
+New Features
+------------
+
+- Add ignore feature to `move_rotator` script. (`DM-52566 <https://rubinobs.atlassian.net//browse/DM-52566>`_)
+- configure roi size and roi time integration in track_target_and_take_image_lsstcam.py script (`OSW-1180 <https://rubinobs.atlassian.net//browse/OSW-1180>`_)
+- In ``take_image_lsstcam.py``, add guider roi selection procedure.
+  The script will retrieve information about the current target from the pointing component and use that to calculate roi regions. (`OSW-1485 <https://rubinobs.atlassian.net//browse/OSW-1485>`_)
+- Updated ``TrackTargetAndTakeImageLSSTCam`` script to add a feature to allow running a few additional exposures for closed loop when there is a filter change.
+  At each iteration it takes 2 exposures and wait until the correction for the first exposure is applied before continuing. (`OSW-1593 <https://rubinobs.atlassian.net//browse/OSW-1593>`_)
+
+
+Bug Fixes
+---------
+
+- Applied intended usages to MTCS in ``enable_dome_following``. (`DM-53159 <https://rubinobs.atlassian.net//browse/DM-53159>`_)
+- Applied intended usages to MTCS in ``enable_m1m3_balance_system``. (`DM-53159 <https://rubinobs.atlassian.net//browse/DM-53159>`_)
+- Applied intended usages to MTCS in ``ensure_onsky_readiness``. (`DM-53159 <https://rubinobs.atlassian.net//browse/DM-53159>`_)
+- Applied intended usages to MTCS in ``disable_dome_following``. (`DM-53159 <https://rubinobs.atlassian.net//browse/DM-53159>`_)
+- Update the ``home_both_axes.py`` script to keep force balance system enabled and to use booster valve context manager while homing. (`DM-53537 <https://rubinobs.atlassian.net//browse/DM-53537>`_)
+- Updated ``TakeAOSSequenceLSSTCam`` to configure TCS synchronization for the camera. (`OSW-1309 <https://rubinobs.atlassian.net//browse/OSW-1309>`_)
+- In ``track_target_and_take_image_lsstcam.py``, fix how roi spec is passed to the init guider method.
+  Originally the roi data was a yaml string but we updated the method to return an ROISpec object. (`OSW-1485 <https://rubinobs.atlassian.net//browse/OSW-1485>`_)
+- In ``disable_hexapod_compensation_mode.py``, add intended usage to ``MTCS`` class to limit resources allocated. (`OSW-1485 <https://rubinobs.atlassian.net//browse/OSW-1485>`_)
+
+
 v0.4.0 (2025-10-20)
 ===================
 
