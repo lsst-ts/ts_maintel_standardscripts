@@ -1,1 +1,0 @@
-Update the ``home_both_axes.py`` script to keep force balance system enabled and to use booster valve context manager while homing.
