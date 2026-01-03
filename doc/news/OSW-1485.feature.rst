@@ -1,0 +1,2 @@
+In ``take_image_lsstcam.py``, add guider roi selection procedure.
+The script will retrieve information about the current target from the pointing component and use that to calculate roi regions.

@@ -33,8 +33,10 @@ from lsst.ts import salobj, standardscripts
 from lsst.ts.maintel.standardscripts.track_target_and_take_image_lsstcam import (
     TrackTargetAndTakeImageLSSTCam,
 )
+from lsst.ts.observatory.control import ROI, ROICommon, ROISpec
 from lsst.ts.observatory.control.utils import RotType
 from lsst.ts.xml.enums.MTAOS import ClosedLoopState
+from lsst.ts.xml.enums.Script import ScriptState
 
 logging.basicConfig()
 
@@ -58,7 +60,13 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
         self.current_filter = "r"
         self.available_filters = ["g", "r", "i"]
         self.rotator_position = 0.0  # deg
+        self.visit_id = 0
         self.mtaos_closed_loop_state = ClosedLoopState.IDLE
+        self.mtaos_dof = types.SimpleNamespace(visitId=0)
+        self.mtaos_dof_set = asyncio.Event()
+        self.mtaos_dof_set.clear()
+        self.mtaos_closed_loop_lock = asyncio.Lock()
+        self.aos_closed_loop_tasks = list()
         self.rotator_velocity = 10.0  # deg/s
         self.rot_sky_emulate_zero = 45.0
         self._handle_slew_calls = 0
@@ -76,6 +84,8 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
 
             for key in configuration_full:
                 assert configuration_full[key] == getattr(self.script.config, key)
+            assert not self.script.config.run_aos_closed_loop_on_filter_change
+            assert self.script.config.aos_closed_loop_settings["n_iter"] == 1
 
         required_fields = {
             "ra",
@@ -94,6 +104,121 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
             async with self.make_script():
                 with pytest.raises(salobj.ExpectedError):
                     await self.configure_script(**bad_configuration)
+
+    async def test_run_aos_closed_loop_on_filter_change_aos_idle(self):
+        async with self.make_script(), self.setup_mocks():
+            self.current_filter = "g"
+            self.rotator_position = -15.0
+            self.mtaos_closed_loop_state = ClosedLoopState.IDLE
+
+            configuration = dict(
+                targetid=10,
+                ra="10:00:00",
+                dec="-10:00:00",
+                rot_sky=0.0,
+                name="unit_test_target",
+                obs_time=7.0,
+                estimated_slew_time=5.0,
+                num_exp=2,
+                exp_times=[2.0, 1.0],
+                band_filter="r",
+                reason="Unit testing",
+                program="UTEST",
+                note="Note_utest",
+                run_aos_closed_loop_on_filter_change=True,
+            )
+
+            await self.configure_script(**configuration)
+
+            assert self.script.config.run_aos_closed_loop_on_filter_change
+            await self.run_script(expected_final_state=ScriptState.FAILED)
+
+    async def test_run_aos_closed_loop_on_filter_change(self):
+        async with self.make_script(), self.setup_mocks():
+            self.current_filter = "g"
+            self.rotator_position = -15.0
+            self.mtaos_closed_loop_state = ClosedLoopState.WAITING_IMAGE
+
+            self.script.mtcs.check_tracking.side_effect = (
+                self.check_tracking_forever_side_effect
+            )
+
+            configuration = dict(
+                targetid=10,
+                ra="10:00:00",
+                dec="-10:00:00",
+                rot_sky=0.0,
+                name="unit_test_target",
+                obs_time=7.0,
+                estimated_slew_time=5.0,
+                num_exp=2,
+                exp_times=[2.0, 1.0],
+                band_filter="r",
+                reason="Unit testing",
+                program="UTEST",
+                note="Note_utest",
+                run_aos_closed_loop_on_filter_change=True,
+                aos_closed_loop_settings=dict(n_iter=2),
+            )
+
+            await self.configure_script(**configuration)
+
+            assert self.script.config.run_aos_closed_loop_on_filter_change
+            assert (
+                self.script.config.aos_closed_loop_settings["n_iter"]
+                == configuration["aos_closed_loop_settings"]["n_iter"]
+            )
+
+            await self.run_script()
+
+            take_object_expected_calls = [
+                unittest.mock.call(
+                    exptime=configuration["exp_times"][0],
+                    group_id=self.script.group_id,
+                    reason=f"{configuration['reason']}_filter_change_close_loop",
+                    program=configuration["program"],
+                    note="close_loop#1",
+                ),
+                unittest.mock.call(
+                    exptime=configuration["exp_times"][0],
+                    group_id=self.script.group_id,
+                    reason=f"{configuration['reason']}_filter_change_close_loop",
+                    program=configuration["program"],
+                    note="extra_visit_while_waiting_for_correction#1",
+                ),
+                unittest.mock.call(
+                    exptime=configuration["exp_times"][0],
+                    group_id=self.script.group_id,
+                    reason=f"{configuration['reason']}_filter_change_close_loop",
+                    program=configuration["program"],
+                    note="close_loop#2",
+                ),
+                unittest.mock.call(
+                    exptime=configuration["exp_times"][0],
+                    group_id=self.script.group_id,
+                    reason=f"{configuration['reason']}_filter_change_close_loop",
+                    program=configuration["program"],
+                    note="extra_visit_while_waiting_for_correction#2",
+                ),
+                unittest.mock.call(
+                    exptime=configuration["exp_times"][0],
+                    group_id=self.script.group_id,
+                    reason=configuration["reason"],
+                    program=configuration["program"],
+                    note=configuration["note"],
+                ),
+                unittest.mock.call(
+                    exptime=configuration["exp_times"][1],
+                    group_id=self.script.group_id,
+                    reason=configuration["reason"],
+                    program=configuration["program"],
+                    note=configuration["note"],
+                ),
+            ]
+
+            self.script.lsstcam.take_object.assert_has_awaits(
+                take_object_expected_calls
+            )
 
     async def test_run_already_in_filter(self):
         async with self.make_script(), self.setup_mocks():
@@ -152,19 +277,13 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                     use_wavefront=False,
                     use_science=False,
                 ):
-                    roi_yaml = (
-                        "roi_spec:\n"
-                        "  common:\n"
-                        "    rows: 111\n"
-                        "    cols: 111\n"
-                        "    integration_time_millis: 66\n"
-                        "  roi:\n"
-                        "    R00SG0:\n"
-                        "      segment: 7\n"
-                        "      start_row: 10\n"
-                        "      start_col: 20\n"
+                    roi_spec = ROISpec(
+                        common=ROICommon(
+                            rows=111, cols=111, integration_time_millis=66
+                        ),
+                        roi=dict(R00SG0=ROI(segment=7, start_row=10, start_col=20)),
                     )
-                    return roi_yaml, None
+                    return roi_spec, None
 
             with unittest.mock.patch(
                 "lsst.ts.maintel.standardscripts.track_target_and_take_image_lsstcam.GuiderROIs",
@@ -178,9 +297,139 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                 args, kwargs = self.script.lsstcam.init_guider.await_args
                 roi_spec = kwargs.get("roi_spec") if kwargs else args[0]
 
+                print(f"{roi_spec=}")
+
                 assert roi_spec.common.rows == 111
                 assert roi_spec.common.cols == 111
                 assert roi_spec.common.integrationTimeMillis == 66
+
+    async def test_configure_roi_defaults(self):
+        """Test that default ROI size and time are used when not specified."""
+        async with self.make_script(), self.setup_mocks():
+            captured_params = {}
+
+            class DummyGuiderROIs:
+                def __init__(self, log=None):
+                    pass
+
+                def get_guider_rois(
+                    self,
+                    ra,
+                    dec,
+                    sky_angle,
+                    roi_size,
+                    roi_time,
+                    band,
+                    npix_edge=50,
+                    use_guider=True,
+                    use_wavefront=False,
+                    use_science=False,
+                ):
+                    captured_params["roi_size"] = roi_size
+                    captured_params["roi_time"] = roi_time
+                    roi_yaml = (
+                        "roi_spec:\n"
+                        "  common:\n"
+                        "    rows: 400\n"
+                        "    cols: 400\n"
+                        "    integration_time_millis: 200\n"
+                    )
+                    return roi_yaml, None
+
+            with unittest.mock.patch(
+                "lsst.ts.maintel.standardscripts.track_target_and_take_image_lsstcam.GuiderROIs",
+                DummyGuiderROIs,
+            ):
+                self.script.lsstcam.init_guider = unittest.mock.AsyncMock()
+
+                # Configure without roi_size and roi_time_ms
+                await self.configure_script_full()
+
+                assert (
+                    captured_params["roi_size"]
+                    == self.script.lsstcam.DEFAULT_GUIDER_ROI_ROWS
+                )
+                assert (
+                    captured_params["roi_time"]
+                    == self.script.lsstcam.DEFAULT_GUIDER_ROI_TIME_MS
+                )
+
+    async def test_configure_roi_custom_values(self):
+        """Test that custom ROI size and time values are used when passed."""
+        async with self.make_script(), self.setup_mocks():
+            captured_params = {}
+
+            class DummyGuiderROIs:
+                def __init__(self, log=None):
+                    pass
+
+                def get_guider_rois(
+                    self,
+                    ra,
+                    dec,
+                    sky_angle,
+                    roi_size,
+                    roi_time,
+                    band,
+                    npix_edge=50,
+                    use_guider=True,
+                    use_wavefront=False,
+                    use_science=False,
+                ):
+                    captured_params["roi_size"] = roi_size
+                    captured_params["roi_time"] = roi_time
+                    roi_spec = ROISpec(
+                        common=ROICommon(
+                            rows=roi_size,
+                            cols=roi_size,
+                            integration_time_millis=roi_time,
+                        ),
+                        roi=dict(R00SG0=ROI(segment=7, start_row=10, start_col=20)),
+                    )
+                    return roi_spec, None
+
+            with unittest.mock.patch(
+                "lsst.ts.maintel.standardscripts.track_target_and_take_image_lsstcam.GuiderROIs",
+                DummyGuiderROIs,
+            ):
+                self.script.lsstcam.init_guider = unittest.mock.AsyncMock()
+
+                # Configure with custom roi_size and roi_time_ms
+                # Note: Values must be within ROISpec validation limits:
+                # rows/cols: 10-400, integration_time_millis: 5-200
+                custom_roi_size = 350
+                custom_roi_time_ms = 150
+
+                configuration = dict(
+                    targetid=10,
+                    ra="10:00:00",
+                    dec="-10:00:00",
+                    rot_sky=0.0,
+                    name="unit_test_target",
+                    obs_time=7.0,
+                    estimated_slew_time=5.0,
+                    num_exp=2,
+                    exp_times=[2.0, 1.0],
+                    band_filter="r",
+                    reason="Unit testing",
+                    program="UTEST",
+                    note="Note_utest",
+                    roi_size=custom_roi_size,
+                    roi_time_ms=custom_roi_time_ms,
+                )
+
+                await self.configure_script(**configuration)
+
+                assert captured_params["roi_size"] == custom_roi_size
+                assert captured_params["roi_time"] == custom_roi_time_ms
+
+                self.script.lsstcam.init_guider.assert_awaited()
+                args, kwargs = self.script.lsstcam.init_guider.await_args
+                roi_spec = kwargs.get("roi_spec") if kwargs else args[0]
+
+                assert roi_spec.common.rows == custom_roi_size
+                assert roi_spec.common.cols == custom_roi_size
+                assert roi_spec.common.integrationTimeMillis == custom_roi_time_ms
 
     async def test_run_with_filter_change(self):
         async with self.make_script(), self.setup_mocks():
@@ -410,11 +659,20 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
             side_effect=self.take_object_side_effect
         )
 
+        # Set default ROI constants for testing
+        self.script.lsstcam.DEFAULT_GUIDER_ROI_ROWS = 400
+        self.script.lsstcam.DEFAULT_GUIDER_ROI_TIME_MS = 200
+
         self.script.mtcs.rem.mtrotator.configure_mock(
             **{"tel_rotation.next.side_effect": self.get_rotator_position}
         )
         self.script.mtcs.rem.mtaos.configure_mock(
-            **{"evt_closedLoopState.aget.side_effect": self.get_closed_loop_state}
+            **{
+                "evt_closedLoopState.aget.side_effect": self.get_closed_loop_state,
+                "evt_closedLoopState.next.side_effect": self.next_closed_loop_state,
+                "evt_degreeOfFreedom.aget.side_effect": self.get_dof,
+                "evt_degreeOfFreedom.next.side_effect": self.next_dof,
+            }
         )
 
         yield
@@ -463,6 +721,30 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
             f"exptime: {exptime}s, group_id: {group_id}, reason: {reason}, program: {program}, note: {note}"
         )
         await asyncio.sleep(exptime)
+        self.visit_id += 1
+        self.aos_closed_loop_tasks.append(
+            asyncio.create_task(self.emulate_aos_closed_loop(self.visit_id))
+        )
+
+        return [self.visit_id]
+
+    async def emulate_aos_closed_loop(self, visit_id):
+        if self.mtaos_closed_loop_state == ClosedLoopState.IDLE:
+            return
+
+        async with self.mtaos_closed_loop_lock:
+            if self.mtaos_closed_loop_state == ClosedLoopState.WAITING_IMAGE:
+                self.mtaos_closed_loop_state = ClosedLoopState.PROCESSING
+                await asyncio.sleep(1)
+                self.mtaos_closed_loop_state = ClosedLoopState.PROCESSING
+                await asyncio.sleep(1)
+                self.mtaos_closed_loop_state = ClosedLoopState.WAITING_APPLY
+                await asyncio.sleep(1)
+                self.mtaos_closed_loop_state = ClosedLoopState.APPLYING_CORRECTION
+                await asyncio.sleep(1)
+                self.mtaos_closed_loop_state = ClosedLoopState.WAITING_IMAGE
+                self.mtaos_dof.visitId = visit_id
+                self.mtaos_dof_set.set()
 
     async def get_current_filter(self):
         return self.current_filter
@@ -482,8 +764,21 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
             await asyncio.sleep(timeout / 2.0)
         return types.SimpleNamespace(actualPosition=self.rotator_position)
 
-    async def get_closed_loop_state(self):
+    async def get_closed_loop_state(self, timeout):
         return types.SimpleNamespace(state=self.mtaos_closed_loop_state)
+
+    async def next_closed_loop_state(self, flush, timeout):
+        await asyncio.sleep(0.5)
+        return types.SimpleNamespace(state=self.mtaos_closed_loop_state)
+
+    async def get_dof(self, timeout):
+        return self.mtaos_dof
+
+    async def next_dof(self, flush, timeout):
+        async with asyncio.timeout(timeout):
+            await self.mtaos_dof_set.wait()
+        self.mtaos_dof_set.clear()
+        return self.mtaos_dof
 
     async def handle_slew_icrs(self, rot, rot_type, **kwargs):
         self._handle_slew_calls += 1

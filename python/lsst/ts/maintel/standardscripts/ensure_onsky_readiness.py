@@ -24,7 +24,7 @@ __all__ = ["EnsureOnSkyReadiness"]
 import yaml
 from lsst.ts import salobj
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.xml.enums import MTAOS, MTM1M3, MTDome
 
 
@@ -74,7 +74,9 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         """Initialize MTCS if not already initialized."""
         if self.mtcs is None:
             self.log.debug("Creating MTCS instance.")
-            self.mtcs = MTCS(domain=self.domain, log=self.log)
+            self.mtcs = MTCS(
+                domain=self.domain, log=self.log, intended_usage=MTCSUsages.All
+            )
             await self.mtcs.start_task
         else:
             self.log.debug("MTCS already initialized.")
