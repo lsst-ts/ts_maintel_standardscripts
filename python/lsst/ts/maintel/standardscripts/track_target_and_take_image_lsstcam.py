@@ -407,7 +407,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
             f"Waiting for degree of freedom for {visit_id=} ({visit_id_index=}); "
             f"got initial {degree_of_freedom_visit_id_index}."
         )
-        while visit_id_index != degree_of_freedom_visit_id_index:
+        while visit_id_index <= degree_of_freedom_visit_id_index:
             try:
                 degree_of_freedom = await self.mtcs.rem.mtaos.evt_degreeOfFreedom.next(
                     flush=False,
