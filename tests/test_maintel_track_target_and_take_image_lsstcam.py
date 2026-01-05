@@ -174,28 +174,28 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
             take_object_expected_calls = [
                 unittest.mock.call(
                     exptime=configuration["exp_times"][0],
-                    group_id=self.script.group_id,
+                    group_id=f"{self.script.group_id}#1",
                     reason=f"{configuration['reason']}_filter_change_close_loop",
                     program=configuration["program"],
                     note="close_loop#1",
                 ),
                 unittest.mock.call(
                     exptime=configuration["exp_times"][0],
-                    group_id=self.script.group_id,
+                    group_id=f"{self.script.group_id}#2",
                     reason=f"{configuration['reason']}_filter_change_close_loop",
                     program=configuration["program"],
                     note="extra_visit_while_waiting_for_correction#1",
                 ),
                 unittest.mock.call(
                     exptime=configuration["exp_times"][0],
-                    group_id=self.script.group_id,
+                    group_id=f"{self.script.group_id}#3",
                     reason=f"{configuration['reason']}_filter_change_close_loop",
                     program=configuration["program"],
                     note="close_loop#2",
                 ),
                 unittest.mock.call(
                     exptime=configuration["exp_times"][0],
-                    group_id=self.script.group_id,
+                    group_id=f"{self.script.group_id}#4",
                     reason=f"{configuration['reason']}_filter_change_close_loop",
                     program=configuration["program"],
                     note="extra_visit_while_waiting_for_correction#2",
