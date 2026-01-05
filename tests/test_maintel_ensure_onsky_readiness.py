@@ -62,6 +62,7 @@ class TestEnsureOnSkyReadiness(
         self.script.mtcs.open_m1_cover = mock.AsyncMock()
         self.script.mtcs.enable_compensation_mode = mock.AsyncMock()
         self.script.mtcs.enable_ccw_following = mock.AsyncMock()
+        self.script.mtcs.unpark_dome = mock.AsyncMock()
         self.script.mtcs.enable_dome_following = mock.AsyncMock()
 
         # Mock remotes/events
@@ -87,6 +88,11 @@ class TestEnsureOnSkyReadiness(
             return_value=mock.Mock(detailedState=MTM1M3.DetailedStates.ACTIVE)
         )
         self.script.mtcs.rem.mtdome = mock.Mock()
+        self.script.mtcs.rem.mtdome.evt_azMotion = mock.Mock()
+        # Default: not parked, so the script should not attempt to unpark.
+        self.script.mtcs.rem.mtdome.evt_azMotion.aget = mock.AsyncMock(
+            return_value=mock.Mock(state=MTDome.MotionState.MOVING)
+        )
         self.script.mtcs.rem.mtdome.evt_shutterMotion = mock.Mock()
         self.script.mtcs.rem.mtdome.evt_shutterMotion.flush = mock.Mock()
         self.script.mtcs.rem.mtdome.evt_shutterMotion.aget = mock.AsyncMock(
@@ -162,7 +168,22 @@ class TestEnsureOnSkyReadiness(
             self.script.mtcs.enable_compensation_mode.assert_has_awaits(
                 [mock.call("mthexapod_1"), mock.call("mthexapod_2")]
             )
+            self.script.mtcs.unpark_dome.assert_awaited_once()
             self.script.mtcs.enable_dome_following.assert_awaited_once()
+
+    async def test_run_unpark_dome_if_parked(self):
+        """Test that the script unparks the dome if it is in PARKED state."""
+
+        async with self.make_script():
+            await self.configure_script(slew_flags="default")
+
+            self.script.mtcs.rem.mtdome.evt_azMotion.aget = mock.AsyncMock(
+                return_value=mock.Mock(state=MTDome.MotionState.PARKED)
+            )
+
+            await self.run_script()
+
+            self.script.mtcs.unpark_dome.assert_awaited_once()
 
     async def test_components_not_all_enabled(self):
         """Test the script when some components are not enabled."""
