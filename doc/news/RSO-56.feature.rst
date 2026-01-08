@@ -1,1 +1,0 @@
-In `maintel/ensure_onsky_readiness.py`, ensure the dome is unparked before enabling dome following.

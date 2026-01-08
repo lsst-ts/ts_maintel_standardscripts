@@ -1,2 +1,0 @@
-In ``track_target_and_take_image_lsstcam.py``, update termination condition in ``wait_correction_for_visit_id`` to interrupt if the degree of freedom is equal to or larger than the first exposure taken.
-This allows working around a situation where we do a large slew followed by a filter change, which caused the first correction to be discarded by the MTAOS.
