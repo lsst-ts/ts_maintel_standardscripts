@@ -8,6 +8,23 @@ Version History
 
 .. towncrier release notes start
 
+v0.5.1 (2026-01-07)
+===================
+
+New Features
+------------
+
+- In `maintel/ensure_onsky_readiness.py`, ensure the dome is unparked before enabling dome following. (`RSO-56 <https://rubinobs.atlassian.net//browse/RSO-56>`_)
+
+
+Bug Fixes
+---------
+
+- In ``track_target_and_take_image_lsstcam.py``, update termination condition in ``wait_correction_for_visit_id`` to interrupt if the degree of freedom is equal to or larger than the first exposure taken.
+  This allows working around a situation where we do a large slew followed by a filter change, which caused the first correction to be discarded by the MTAOS. (`OSW-1618 <https://rubinobs.atlassian.net//browse/OSW-1618>`_)
+- In ``track_target_and_take_image_lsstcam.py``, updated how additional AOS exposures after filter change are taken to use supplemental group ID. (`OSW-1618 <https://rubinobs.atlassian.net//browse/OSW-1618>`_)
+
+
 v0.5.0 (2026-01-02)
 ===================
 
