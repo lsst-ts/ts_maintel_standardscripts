@@ -46,8 +46,9 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
     8. Ensure the M1M3 Mirror Covers are open.
     9. Ensure Camera Cable Wrap (CCW) following is enabled.
     10. Ensure Compensation Mode is enabled for both Hexapods.
-    11. Ensure Dome Following Mode is enabled.
-    12. Assert that the AOS (Active Optics System) Closed Loop is enabled.
+    11. Ensure the Dome is unparked.
+    12. Ensure Dome Following Mode is enabled.
+    13. Assert that the AOS (Active Optics System) Closed Loop is enabled.
 
     At each step, the script logs progress, checks system states, and takes
     corrective actions or raises warnings/errors as appropriate. If dome and
@@ -458,6 +459,17 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         self.log.info("Ensuring Camera Cable Wrap following is enabled.")
         await self.mtcs.enable_ccw_following()
 
+    async def ensure_dome_unparked(self) -> None:
+        """Ensure the dome is unparked.
+
+        This methdod calls MTCS.unpark_dome(), which checks the current
+        dome azimuth motion state. If the dome is parked, it sends the
+        command to unpark it. If already unparked, no action is taken.
+        """
+
+        self.log.info("Ensuring dome is unparked.")
+        await self.mtcs.unpark_dome()
+
     async def ensure_dome_following_enabled(self):
         """Ensure dome following mode is enabled.
 
@@ -532,6 +544,9 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
 
         await self.checkpoint("Ensure Hexapods Compensation Mode are enabled.")
         await self.ensure_hexapod_compensation_mode_enabled()
+
+        await self.checkpoint("Ensure Dome is unparked.")
+        await self.ensure_dome_unparked()
 
         await self.checkpoint("Ensure Dome Following is enabled.")
         await self.ensure_dome_following_enabled()

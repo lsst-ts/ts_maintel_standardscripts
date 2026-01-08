@@ -372,7 +372,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
         for exp in range(self.config.aos_closed_loop_settings["n_iter"]):
             visit_ids = await self.lsstcam.take_object(
                 exptime=exptime,
-                group_id=self.group_id,
+                group_id=self.next_supplemented_group_id(),
                 reason=f"{self.config.reason}_filter_change_close_loop",
                 program=self.config.program,
                 note=f"close_loop#{exp+1}",
@@ -382,7 +382,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
             )
             await self.lsstcam.take_object(
                 exptime=exptime,
-                group_id=self.group_id,
+                group_id=self.next_supplemented_group_id(),
                 reason=f"{self.config.reason}_filter_change_close_loop",
                 program=self.config.program,
                 note=f"extra_visit_while_waiting_for_correction#{exp+1}",
@@ -407,7 +407,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
             f"Waiting for degree of freedom for {visit_id=} ({visit_id_index=}); "
             f"got initial {degree_of_freedom_visit_id_index}."
         )
-        while visit_id_index != degree_of_freedom_visit_id_index:
+        while visit_id_index <= degree_of_freedom_visit_id_index:
             try:
                 degree_of_freedom = await self.mtcs.rem.mtaos.evt_degreeOfFreedom.next(
                     flush=False,
