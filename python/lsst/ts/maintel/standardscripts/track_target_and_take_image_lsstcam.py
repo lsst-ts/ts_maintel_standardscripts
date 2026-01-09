@@ -212,6 +212,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
                 f"Already in the desired filter ({current_filter}), slewing and tracking."
             )
 
+        set_guider_roi_task = asyncio.create_task(self.lsstcam.set_init_guider())
         await self.mtcs.slew_icrs(
             ra=self.config.ra,
             dec=self.config.dec,
@@ -221,6 +222,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
             az_wrap_strategy=self.config.az_wrap_strategy,
             time_on_target=self.get_estimated_time_on_target(),
         )
+        await set_guider_roi_task
 
         if filter_change_required and self.config.run_aos_closed_loop_on_filter_change:
             self.log.info("Filter changed, running a close loop sequence.")

@@ -216,6 +216,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                 ),
             ]
 
+            self.script.lsstcam.set_init_guider.assert_awaited_once()
             self.script.lsstcam.take_object.assert_has_awaits(
                 take_object_expected_calls
             )
@@ -251,6 +252,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                 for exptime in configuration_full["exp_times"]
             ]
 
+            self.script.lsstcam.set_init_guider.assert_awaited_once()
             self.script.lsstcam.take_object.assert_has_awaits(lsstcam_take_object_calls)
             self.script.mtcs.check_tracking.assert_awaited_once()
 
@@ -481,6 +483,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                 for exptime in configuration_full["exp_times"]
             ]
 
+            self.script.lsstcam.set_init_guider.assert_awaited_once()
             self.script.lsstcam.take_object.assert_has_awaits(lsstcam_take_object_calls)
             self.script.mtcs.check_tracking.assert_awaited_once()
 
@@ -506,6 +509,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                 filter=configuration_full["band_filter"],
             )
 
+            self.script.lsstcam.set_init_guider.assert_not_awaited()
             self.script.lsstcam.take_object.assert_not_awaited()
             self.script.mtcs.check_tracking.assert_not_awaited()
 
@@ -534,6 +538,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                 )
             ]
 
+            self.script.lsstcam.set_init_guider.assert_not_awaited()
             self.script.mtcs.slew_icrs.assert_has_awaits(slew_icrs_expected_calls)
 
             self.script.lsstcam.setup_filter.assert_not_awaited()
@@ -579,6 +584,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                 filter=configuration_full["band_filter"],
             )
 
+            self.script.lsstcam.set_init_guider.assert_awaited_once()
             self.script.lsstcam.take_object.assert_not_awaited()
             self.script.mtcs.check_tracking.assert_not_awaited()
 
@@ -633,6 +639,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                 )
             ]
 
+            self.script.lsstcam.set_init_guider.assert_awaited_once()
             self.script.lsstcam.take_object.assert_has_awaits(lsstcam_take_object_calls)
 
             self.script.mtcs.check_tracking.assert_awaited_once()
@@ -658,6 +665,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
         self.script.lsstcam.take_object = unittest.mock.AsyncMock(
             side_effect=self.take_object_side_effect
         )
+        self.script.lsstcam.set_init_guider = unittest.mock.AsyncMock()
 
         # Set default ROI constants for testing
         self.script.lsstcam.DEFAULT_GUIDER_ROI_ROWS = 400
