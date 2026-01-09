@@ -8,6 +8,15 @@ Version History
 
 .. towncrier release notes start
 
+v0.6.0 (2026-01-09)
+===================
+
+New Features
+------------
+
+- Integrated the new ``LSSTCam.set_init_guider`` method into the ``track_target_and_take_image_lsstcam.py`` script to set guider ROI during the slew process, reducing total execution time by approximately 0.5 seconds. (`OSW-1632 <https://rubinobs.atlassian.net//browse/OSW-1632>`_)
+
+
 v0.5.1 (2026-01-07)
 ===================
 

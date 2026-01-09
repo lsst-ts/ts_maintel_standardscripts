@@ -1,1 +1,0 @@
-Integrated the new ``LSSTCam.set_init_guider`` method into the ``track_target_and_take_image_lsstcam.py`` script to set guider ROI during the slew process, reducing total execution time by approximately 0.5 seconds.
