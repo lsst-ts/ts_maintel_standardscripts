@@ -35,6 +35,10 @@ from lsst.ts.standardscripts.base_track_target_and_take_image import (
 from lsst.ts.xml.enums.MTAOS import ClosedLoopState
 
 
+class CorrectionTimeoutError(Exception):
+    pass
+
+
 class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
     """Track target and take image script.
 
@@ -418,7 +422,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
                     ),
                 )
             except TimeoutError as e:
-                raise RuntimeError(
+                raise CorrectionTimeoutError(
                     f"Timeout waiting for AOS corrections to complete for visit {visit_id}; "
                     f"last correction received was for {degree_of_freedom_visit_id_index}. "
                     "This might be a sign that RA is taking too long to calculate the corrections "
