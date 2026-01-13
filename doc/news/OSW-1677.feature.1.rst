@@ -1,2 +1,0 @@
-Implemented a retry mechanism in _run_close_loop that automatically retries the first iteration of the closed loop if a correction timeout occurs.
-This provides a robust workaround for scenarios where the MTAOS discards initial corrections following significant elevation, rotation, or filter changes.

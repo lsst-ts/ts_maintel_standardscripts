@@ -1,1 +1,0 @@
-Introduced a custom exception specifically for correction timeouts in wait_correction_for_visit_id, allowing for more granular error catching and handling in the imaging script.
