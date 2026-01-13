@@ -35,6 +35,10 @@ from lsst.ts.standardscripts.base_track_target_and_take_image import (
 from lsst.ts.xml.enums.MTAOS import ClosedLoopState
 
 
+class CorrectionTimeoutError(Exception):
+    pass
+
+
 class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
     """Track target and take image script.
 
@@ -369,9 +373,14 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
         self.log.info(
             f"MTAOS closed loop state: {ClosedLoopState(mtaos_closed_loop_state.state).name}."
         )
-        await self._wait_mtaos_ready_for_closed_loop()
         exptime = self.config.exp_times[0]
-        for exp in range(self.config.aos_closed_loop_settings["n_iter"]):
+        exp = 0
+        exp_0_failed = False
+
+        while exp < self.config.aos_closed_loop_settings["n_iter"]:
+
+            await self._wait_mtaos_ready_for_closed_loop()
+
             visit_ids = await self.lsstcam.take_object(
                 exptime=exptime,
                 group_id=self.next_supplemented_group_id(),
@@ -389,7 +398,19 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
                 program=self.config.program,
                 note=f"extra_visit_while_waiting_for_correction#{exp+1}",
             )
-            await wait_correction_for_visit_id_task
+            try:
+                await wait_correction_for_visit_id_task
+            except CorrectionTimeoutError:
+                if exp > 0 or exp_0_failed:
+                    raise
+                else:
+                    self.log.warning(
+                        "Correction timeout during first iteration, repeating correction.",
+                        exc_info=True,
+                    )
+                    exp_0_failed = True
+            else:
+                exp += 1
 
     async def wait_correction_for_visit_id(self, visit_id: int) -> None:
         """Wait for the AOS correction for the provided visit id.
@@ -409,7 +430,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
             f"Waiting for degree of freedom for {visit_id=} ({visit_id_index=}); "
             f"got initial {degree_of_freedom_visit_id_index}."
         )
-        while visit_id_index <= degree_of_freedom_visit_id_index:
+        while degree_of_freedom_visit_id_index <= visit_id_index:
             try:
                 degree_of_freedom = await self.mtcs.rem.mtaos.evt_degreeOfFreedom.next(
                     flush=False,
@@ -418,7 +439,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
                     ),
                 )
             except TimeoutError as e:
-                raise RuntimeError(
+                raise CorrectionTimeoutError(
                     f"Timeout waiting for AOS corrections to complete for visit {visit_id}; "
                     f"last correction received was for {degree_of_freedom_visit_id_index}. "
                     "This might be a sign that RA is taking too long to calculate the corrections "

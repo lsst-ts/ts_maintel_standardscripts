@@ -1,0 +1,1 @@
+Updated _run_close_loop to verify that the MTAOS is ready for closed-loop operations at every iteration, ensuring more stable and synchronized execution during image sequences.
