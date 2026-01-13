@@ -373,12 +373,14 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
         self.log.info(
             f"MTAOS closed loop state: {ClosedLoopState(mtaos_closed_loop_state.state).name}."
         )
-        await self._wait_mtaos_ready_for_closed_loop()
         exptime = self.config.exp_times[0]
         exp = 0
         exp_0_failed = False
 
         while exp < self.config.aos_closed_loop_settings["n_iter"]:
+
+            await self._wait_mtaos_ready_for_closed_loop()
+
             visit_ids = await self.lsstcam.take_object(
                 exptime=exptime,
                 group_id=self.next_supplemented_group_id(),
