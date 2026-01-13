@@ -1,0 +1,1 @@
+Fixed a logic error in wait_correction_for_visit_id where a reversed comparison index caused the loop to terminate immediately instead of waiting for corrections to complete.
