@@ -375,7 +375,10 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
         )
         await self._wait_mtaos_ready_for_closed_loop()
         exptime = self.config.exp_times[0]
-        for exp in range(self.config.aos_closed_loop_settings["n_iter"]):
+        exp = 0
+        exp_0_failed = False
+
+        while exp < self.config.aos_closed_loop_settings["n_iter"]:
             visit_ids = await self.lsstcam.take_object(
                 exptime=exptime,
                 group_id=self.next_supplemented_group_id(),
@@ -393,7 +396,19 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
                 program=self.config.program,
                 note=f"extra_visit_while_waiting_for_correction#{exp+1}",
             )
-            await wait_correction_for_visit_id_task
+            try:
+                await wait_correction_for_visit_id_task
+            except CorrectionTimeoutError:
+                if exp > 0 or exp_0_failed:
+                    raise
+                else:
+                    self.log.warning(
+                        "Correction timeout during first iteration, repeating correction.",
+                        exc_info=True,
+                    )
+                    exp_0_failed = True
+            else:
+                exp += 1
 
     async def wait_correction_for_visit_id(self, visit_id: int) -> None:
         """Wait for the AOS correction for the provided visit id.
