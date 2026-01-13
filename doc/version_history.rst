@@ -8,6 +8,24 @@ Version History
 
 .. towncrier release notes start
 
+v0.6.1 (2026-01-13)
+===================
+
+New Features
+------------
+
+- Updated _run_close_loop to verify that the MTAOS is ready for closed-loop operations at every iteration, ensuring more stable and synchronized execution during image sequences. (`OSW-1677 <https://rubinobs.atlassian.net//browse/OSW-1677>`_)
+- Implemented a retry mechanism in _run_close_loop that automatically retries the first iteration of the closed loop if a correction timeout occurs.
+  This provides a robust workaround for scenarios where the MTAOS discards initial corrections following significant elevation, rotation, or filter changes. (`OSW-1677 <https://rubinobs.atlassian.net//browse/OSW-1677>`_)
+- Introduced a custom exception specifically for correction timeouts in wait_correction_for_visit_id, allowing for more granular error catching and handling in the imaging script. (`OSW-1677 <https://rubinobs.atlassian.net//browse/OSW-1677>`_)
+
+
+Bug Fixes
+---------
+
+- Fixed a logic error in wait_correction_for_visit_id where a reversed comparison index caused the loop to terminate immediately instead of waiting for corrections to complete. (`OSW-1677 <https://rubinobs.atlassian.net//browse/OSW-1677>`_)
+
+
 v0.6.0 (2026-01-09)
 ===================
 
