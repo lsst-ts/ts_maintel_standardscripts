@@ -158,6 +158,45 @@ class TestTakeImageLSSTCam(
                 components=["mtmount", "mtptg"]
             )
 
+    async def test_configure_set_roi_false(self):
+        """Test that setting set_roi to False skips ROI specification."""
+        async with self.make_script():
+            # Mock get_guider_roi to verify it's not called
+            self.script.get_guider_roi = mock.AsyncMock()
+
+            config = {
+                "nimages": 1,
+                "exp_times": [1.0],
+                "image_type": "OBJECT",
+                "filter": None,
+                "set_roi": False,
+            }
+            await self.configure_script(**config)
+
+            # Verify that roi_spec is None when set_roi is False
+            assert self.script.roi_spec is None
+            # Verify that get_guider_roi was not called
+            self.script.get_guider_roi.assert_not_awaited()
+
+    async def test_configure_set_roi_true(self):
+        """Test that setting set_roi to True attempts to get ROI
+        specification."""
+        async with self.make_script():
+            # Mock get_guider_roi to return None (simulating failure)
+            self.script.get_guider_roi = mock.AsyncMock(return_value=None)
+
+            config = {
+                "nimages": 1,
+                "exp_times": [1.0],
+                "image_type": "OBJECT",
+                "filter": None,
+                "set_roi": True,
+            }
+            await self.configure_script(**config)
+
+            # Verify that get_guider_roi was called when set_roi is True
+            self.script.get_guider_roi.assert_awaited_once()
+
 
 if __name__ == "__main__":
     unittest.main()
