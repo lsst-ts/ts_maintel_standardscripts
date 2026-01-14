@@ -140,19 +140,14 @@ class TestTakeImageLSSTCam(
         async with self.make_script():
             self.script.mtcs.disable_checks_for_components = mock.MagicMock()
 
-            config = type(
-                "Config",
-                (),
-                {
-                    "ignore": ["mtmount", "mtptg"],
-                    "nimages": 1,
-                    "exp_times": [1.0],
-                    "image_type": "OBJECT",
-                    "filter": None,
-                    "roi_spec": None,
-                },
-            )()
-            await self.script.configure(config)
+            config = {
+                "ignore": ["mtmount", "mtptg"],
+                "nimages": 1,
+                "exp_times": [1.0],
+                "image_type": "OBJECT",
+                "filter": None,
+            }
+            await self.configure_script(**config)
 
             self.script.mtcs.disable_checks_for_components.assert_any_call(
                 components=["mtmount", "mtptg"]
