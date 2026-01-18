@@ -23,10 +23,13 @@ from .close_dome import *
 from .crawl_az import *
 from .disable_dome_following import *
 from .enable_dome_following import *
+from .exit_fault_dome import *
 from .home_dome import *
 from .offset_dome import *
 from .open_dome import *
 from .park_dome import *
+from .partially_open_and_close_shutter import *
 from .recover_from_controller_fault import *
+from .set_operational_mode_dome import *
 from .slew_dome import *
 from .unpark_dome import *
