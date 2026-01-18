@@ -108,15 +108,15 @@ class PowerOffTunableLaser(salobj.BaseScript):
 
         await self.checkpoint("Configuring TunableLaser")
 
-        params = await self.mtcalsys.get_laser_parameters()
+        # params = await self.mtcalsys.get_laser_parameters()
 
-        self.log.info(
-            f"Laser Configuration is {params[0]}, \n"
-            f"wavelength is {params[1]}, \n"
-            f"Interlock is {params[2]}, \n"
-            f"Burst mode is {params[3]}, \n"
-            f"Cont. mode is {params[4]}"
-        )
+        # self.log.info(
+        #     f"Laser Configuration is {params[0]}, \n"
+        #     f"wavelength is {params[1]}, \n"
+        #     f"Interlock is {params[2]}, \n"
+        #     f"Burst mode is {params[3]}, \n"
+        #     f"Cont. mode is {params[4]}"
+        # )
 
         await self.checkpoint("Stopping laser propagation")
         await self.start_propagation_off()
