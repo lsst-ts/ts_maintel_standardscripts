@@ -38,6 +38,8 @@ from .focus_sweep_comcam import *
 from .focus_sweep_lsstcam import *
 from .home_both_axes import *
 from .move_p2p import *
+from .mtdome.vents.close_vents_eon import *
+from .mtdome.vents.open_vents_bon import *
 from .offline_comcam import *
 from .offline_mtcs import *
 from .offset_camera_hexapod import *
