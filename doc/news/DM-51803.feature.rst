@@ -1,0 +1,1 @@
+Add a ``maintel/prepare_for/flat.py`` script to prepare Simonyi for in-dome flat-field calibrations.
