@@ -1,0 +1,1 @@
+Add ``mtdome/partially_open_and_close_shutter.py`` helper script for the dome handover procedure.
