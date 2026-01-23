@@ -203,6 +203,7 @@ class TakeImageLSSTCam(BaseTakeImage):
                     )
         else:
             self.roi_spec = None
+            self.camera.reset_guider_roi()
 
         await super().configure(config=config)
 
