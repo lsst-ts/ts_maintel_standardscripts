@@ -52,6 +52,25 @@ class TestPrepareForOnSky(
         async with self.make_script():
             await self.configure_script()
 
+            assert self.script.filter == "i_39"
+
+    async def test_configure_filter_band(self):
+        async with self.make_script():
+            await self.configure_script(filter="i")
+
+            assert self.script.filter == "i_39"
+
+    async def test_configure_filter_full_name(self):
+        async with self.make_script():
+            await self.configure_script(filter="r_57")
+
+            assert self.script.filter == "r_57"
+
+    async def test_configure_invalid_filter(self):
+        async with self.make_script():
+            with self.assertRaises(salobj.ExpectedError):
+                await self.configure_script(filter="not_a_filter")
+
     async def test_configure_ignore(self):
         async with self.make_script():
             await self.configure_script(
@@ -88,26 +107,32 @@ class TestPrepareForOnSky(
         async with self.make_script():
             await self.configure_script()
 
-            # Mock the methods that are run
+            self.script.mtcs.assert_all_enabled = unittest.mock.AsyncMock()
             self.script.lsstcam.assert_all_enabled = unittest.mock.AsyncMock()
             self.script.mtcs.prepare_for_onsky = unittest.mock.AsyncMock()
+            self.script.lsstcam.setup_instrument = unittest.mock.AsyncMock()
 
             await self.run_script()
 
             # Verify the methods were called
+            self.script.mtcs.assert_all_enabled.assert_called_once()
             self.script.lsstcam.assert_all_enabled.assert_called_once()
             self.script.mtcs.prepare_for_onsky.assert_called_once()
+            self.script.lsstcam.setup_instrument.assert_called_once_with(filter="i_39")
 
     async def test_run_ignore_non_critical_components(self):
         async with self.make_script():
             await self.configure_script(ignore=["mtdometrajectory"])
 
-            # Mock the methods that are run
+            self.script.mtcs.assert_all_enabled = unittest.mock.AsyncMock()
             self.script.lsstcam.assert_all_enabled = unittest.mock.AsyncMock()
             self.script.mtcs.prepare_for_onsky = unittest.mock.AsyncMock()
+            self.script.lsstcam.setup_instrument = unittest.mock.AsyncMock()
 
             await self.run_script()
 
             # Verify the methods were called
+            self.script.mtcs.assert_all_enabled.assert_called_once()
             self.script.lsstcam.assert_all_enabled.assert_called_once()
             self.script.mtcs.prepare_for_onsky.assert_called_once()
+            self.script.lsstcam.setup_instrument.assert_called_once_with(filter="i_39")
