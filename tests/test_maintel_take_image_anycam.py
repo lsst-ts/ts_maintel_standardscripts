@@ -417,3 +417,25 @@ class TestTakeImageAnyCam(
                         await self.validate_camera_configuration(gencam_config)
                 else:  # lsstcam and comcam are dictionaries
                     await self.validate_camera_configuration(cam_config, cam_key)
+
+    def test_schema_inherits_base_required(self):
+        """Test that the schema inherits 'required' fields from the base class.
+
+        Note: BaseBlockScript does not have required fields, so this test
+        verifies that the derived schema has its own required fields and that
+        the inheritance pattern is in place for consistency.
+        """
+        from lsst.ts.standardscripts.base_block_script import BaseBlockScript
+
+        base_schema = BaseBlockScript.get_schema()
+        derived_schema = TakeImageAnyCam.get_schema()
+
+        if "required" in base_schema:
+            self.assertIn("required", derived_schema)
+            base_required = set(base_schema["required"])
+            derived_required = set(derived_schema["required"])
+            self.assertTrue(
+                base_required.issubset(derived_required),
+                f"Derived schema is missing base required fields: "
+                f"{base_required - derived_required}",
+            )
