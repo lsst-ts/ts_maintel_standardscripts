@@ -23,7 +23,7 @@ import unittest
 import unittest.mock as mock
 
 import pytest
-from lsst.ts import salobj, standardscripts
+from lsst.ts import salobj, standardscripts, utils
 from lsst.ts.maintel.standardscripts import TakeImageLSSTCam
 
 
@@ -45,6 +45,7 @@ class TestTakeImageLSSTCam(
         self.script._lsstcam.filter_change_timeout = 0.0
         self.script._lsstcam.read_out_time = 0.0
         self.script._lsstcam.shutter_time = 0.0
+        self.script._lsstcam.take_imgtype = mock.AsyncMock(return_value=[[1]])
 
         return (self.script,)
 
@@ -179,6 +180,10 @@ class TestTakeImageLSSTCam(
         async with self.make_script():
             # Mock get_guider_roi to return None (simulating failure)
             self.script.get_guider_roi = mock.AsyncMock(return_value=None)
+            self.script._lsstcam.setup_instrument = mock.AsyncMock(
+                return_value=utils.make_done_future()
+            )
+            self.script.assert_feasibility = mock.AsyncMock()
 
             config = {
                 "nimages": 1,
@@ -189,7 +194,11 @@ class TestTakeImageLSSTCam(
             }
             await self.configure_script(**config)
 
-            # Verify that get_guider_roi was called when set_roi is True
+            # Verify that get_guider_roi was not called during
+            # the configure stage.
+            self.script.get_guider_roi.assert_not_awaited()
+            await self.run_script()
+            # Verify it was called during the run stage
             self.script.get_guider_roi.assert_awaited_once()
 
 
