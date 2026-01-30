@@ -1,0 +1,1 @@
+The ``prepare_for_onsky`` script now configures the camera filter during preparation to support the on-sky initial alignment optimization effort described in `RSO-76 <https://rubinobs.atlassian.net/browse/RSO-76>`_.
