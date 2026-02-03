@@ -292,6 +292,7 @@ class TakeImageLSSTCam(BaseTakeImage):
                     )
         else:
             self.roi_spec = None
+            self.camera.reset_guider_roi()
 
         if self.roi_spec is not None:
             await self.camera.init_guider(roi_spec=self.roi_spec)
