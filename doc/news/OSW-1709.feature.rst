@@ -1,0 +1,1 @@
+Update ``take_image_lsstcam`` script to reset guider roi when ``set_roi`` is False.

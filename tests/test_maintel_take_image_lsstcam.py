@@ -47,6 +47,8 @@ class TestTakeImageLSSTCam(
         self.script._lsstcam.shutter_time = 0.0
         self.script._lsstcam.take_imgtype = mock.AsyncMock(return_value=[[1]])
 
+        self.script.camera.reset_guider_roi = mock.MagicMock()
+
         return (self.script,)
 
     async def _inject_mtcs_check_mocks(self):
@@ -159,6 +161,10 @@ class TestTakeImageLSSTCam(
         async with self.make_script():
             # Mock get_guider_roi to verify it's not called
             self.script.get_guider_roi = mock.AsyncMock()
+            self.script._lsstcam.setup_instrument = mock.AsyncMock(
+                return_value=utils.make_done_future()
+            )
+            self.script.assert_feasibility = mock.AsyncMock()
 
             config = {
                 "nimages": 1,
@@ -171,8 +177,10 @@ class TestTakeImageLSSTCam(
 
             # Verify that roi_spec is None when set_roi is False
             assert self.script.roi_spec is None
+            await self.run_script()
             # Verify that get_guider_roi was not called
             self.script.get_guider_roi.assert_not_awaited()
+            self.script.camera.reset_guider_roi.assert_called_once()
 
     async def test_configure_set_roi_true(self):
         """Test that setting set_roi to True attempts to get ROI
@@ -200,6 +208,7 @@ class TestTakeImageLSSTCam(
             await self.run_script()
             # Verify it was called during the run stage
             self.script.get_guider_roi.assert_awaited_once()
+            self.script.camera.reset_guider_roi.assert_not_called()
 
 
 if __name__ == "__main__":
