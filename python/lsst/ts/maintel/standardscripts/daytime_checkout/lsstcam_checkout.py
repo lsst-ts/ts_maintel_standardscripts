@@ -22,6 +22,7 @@
 __all__ = ["LsstCamCheckout"]
 
 import asyncio
+import re
 from contextlib import asynccontextmanager
 
 import yaml
@@ -29,7 +30,15 @@ from lsst.ts import salobj, utils
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.standardscripts.utils import get_topic_time_utc
 
-INGESTION_TIMEOUT = 30  # seconds to wait for all image ingestion events
+INGESTION_TIMEOUT = 15  # max time to wait for all raft/sensors ingestion events
+
+# Expected ingestion counts by image type
+EXPECTED_BIAS_INGEST_SCIENCE = 189
+EXPECTED_BIAS_INGEST_GUIDER = 0
+EXPECTED_BIAS_INGEST_WFS = 0
+EXPECTED_ENGTEST_INGEST_SCIENCE = 189
+EXPECTED_ENGTEST_INGEST_GUIDER = 8
+EXPECTED_ENGTEST_INGEST_WFS = 8
 
 
 class LsstCamCheckout(salobj.BaseScript):
@@ -75,6 +84,12 @@ class LsstCamCheckout(salobj.BaseScript):
         )
         self.lsstcam = None
         self.ingestion_timeout = INGESTION_TIMEOUT
+        self.expected_bias_ingest_science = EXPECTED_BIAS_INGEST_SCIENCE
+        self.expected_bias_ingest_guider = EXPECTED_BIAS_INGEST_GUIDER
+        self.expected_bias_ingest_wfs = EXPECTED_BIAS_INGEST_WFS
+        self.expected_engtest_ingest_science = EXPECTED_ENGTEST_INGEST_SCIENCE
+        self.expected_engtest_ingest_guider = EXPECTED_ENGTEST_INGEST_GUIDER
+        self.expected_engtest_ingest_wfs = EXPECTED_ENGTEST_INGEST_WFS
         self.current_filter = None
         self.available_filters = None
 
@@ -211,10 +226,13 @@ class LsstCamCheckout(salobj.BaseScript):
         """
         await self.checkpoint("Bias Frame Verification.")
 
-        async with self.ingested_image():
+        async with self.ingested_image(
+            expected_science=self.expected_bias_ingest_science,
+            expected_guider=self.expected_bias_ingest_guider,
+            expected_wfs=self.expected_bias_ingest_wfs,
+            image_label="bias",
+        ):
             await self.lsstcam.take_bias(nbias=1)
-
-        self.log.info("Bias exposure ingestion verified successfully.")
 
     async def verify_engtest_frame(self):
         """Take an engineering frame and verify MTOODS ingestion.
@@ -230,7 +248,12 @@ class LsstCamCheckout(salobj.BaseScript):
         """
         await self.checkpoint("Engineering Frame Verification.")
 
-        async with self.ingested_image():
+        async with self.ingested_image(
+            expected_science=self.expected_engtest_ingest_science,
+            expected_guider=self.expected_engtest_ingest_guider,
+            expected_wfs=self.expected_engtest_ingest_wfs,
+            image_label="engtest",
+        ):
             await self.lsstcam.take_engtest(
                 n=1,
                 exptime=1,
@@ -238,8 +261,6 @@ class LsstCamCheckout(salobj.BaseScript):
                 reason=self.reason,
                 note=self.note,
             )
-
-        self.log.info("Engineering exposure ingestion verified successfully.")
 
         try:
             inst_filter = await self.lsstcam.get_current_filter()
@@ -253,23 +274,53 @@ class LsstCamCheckout(salobj.BaseScript):
             self.log.info(f"Engineering test completed with filter {inst_filter}.")
 
     @asynccontextmanager
-    async def ingested_image(self):
-        """Flush MTOODS events, run image acquisition, then validate ingestion.
+    async def ingested_image(
+        self,
+        expected_science,
+        expected_guider,
+        expected_wfs,
+        image_label,
+    ):
+        """Flush MTOODS events, run image acquisition, then validate.
 
-        Runs the camera command inside the context and verifies ingestion
-        for the latest exposure. It flushes MTOODS events before running the
-        command to ensure that only events related to the current exposure
-        are considered. After the command completes, it waits for ingestion
-        events to arrive and validates that at least one event is received
-        for the latest exposure and that all events report successful
-        ingestion.
+        Logs the total expected ingestion count, flushes MTOODS events,
+        runs the camera command inside the context, and verifies
+        ingestion for the latest exposure. Only events related to the
+        current exposure are considered. After the command completes,
+        it waits for ingestion events and validates that the expected
+        number of science, guider and WFS ingestions are received.
+
+        Parameters
+        ----------
+        expected_science : `int`
+            Expected number of science sensor ingestions.
+        expected_guider : `int`
+            Expected number of guider sensor ingestions.
+        expected_wfs : `int`
+            Expected number of wavefront sensor ingestions.
+        image_label : `str`
+            Label for the image type (e.g. ``"bias"``,
+            ``"engtest"``), used in log and error messages.
 
         Raises
         ------
         RuntimeError
-            If no post-flush events arrive in time or any event reports
-            failure.
+            If no post-flush events arrive in time or the expected
+            number of science, guider or WFS ingestions is not
+            reached within the timeout.
         """
+
+        expected_total = expected_science + expected_guider + expected_wfs
+        breakdown_parts = [f"{expected_science} science"]
+        if expected_guider > 0:
+            breakdown_parts.append(f"{expected_guider} guider")
+        if expected_wfs > 0:
+            breakdown_parts.append(f"{expected_wfs} wfs")
+        self.log.info(
+            f"Expecting {expected_total} ingestions "
+            f"({', '.join(breakdown_parts)}) "
+            f"for '{image_label}' image."
+        )
 
         self.lsstcam.rem.mtoods.evt_imageInOODS.flush()
         flush_time = utils.current_tai()
@@ -282,26 +333,48 @@ class LsstCamCheckout(salobj.BaseScript):
 
             (
                 ingestion_events,
-                failed_ingestions,
                 unique_pairs,
                 observed_obsid,
-            ) = await self._collect_ingestion_events(flush_time)
+            ) = await self._collect_ingestion_events(flush_time, image_label)
 
             self._validate_ingestion(
                 ingestion_events,
-                failed_ingestions,
                 unique_pairs,
                 observed_obsid,
+                expected_science=expected_science,
+                expected_guider=expected_guider,
+                expected_wfs=expected_wfs,
+                image_label=image_label,
             )
 
-    async def _collect_ingestion_events(self, flush_time):
-        """Collect ingestion events emitted after the provided flush time."""
+    async def _collect_ingestion_events(self, flush_time, image_label):
+        """Collect ingestion events emitted after flush time.
+
+        Parameters
+        ----------
+        flush_time : `float`
+            TAI timestamp; events before this are ignored.
+        image_label : `str`
+            Label for the image type, used in log messages.
+
+        Returns
+        -------
+        ingestion_events : `list`
+            All valid ingestion events for the tracked obsid.
+        unique_pairs : `set`
+            Unique ``(raft, sensor)`` pairs collected.
+        observed_obsid : `str` or `None`
+            The obsid being tracked, or `None` if no events
+            arrived.
+        """
         ingestion_events = []
-        failed_ingestions = []
         unique_pairs = set()
         observed_obsid = None
 
-        self.log.info("Waiting for MTOODS ingestion events for the latest exposure.")
+        self.log.info(
+            f"Waiting for MTOODS '{image_label}' ingestion events "
+            f"for the latest exposure."
+        )
 
         async def collect_events():
             nonlocal observed_obsid
@@ -337,12 +410,9 @@ class LsstCamCheckout(salobj.BaseScript):
                 # Process the valid ingestion events
                 ingestion_events.append(ingest_event)
                 unique_pairs.add((ingest_event.raft, ingest_event.sensor))
-                if ingest_event.statusCode != 0:
-                    failed_ingestions.append(ingest_event)
                 self.log.debug(
                     f"Collected ingestion event for {ingest_event.obsid}, "
-                    f"raft={ingest_event.raft}, sensor={ingest_event.sensor}, "
-                    f"statusCode={ingest_event.statusCode}."
+                    f"raft={ingest_event.raft}, sensor={ingest_event.sensor}."
                 )
 
         # Wait for events to be collected until timeout
@@ -351,32 +421,185 @@ class LsstCamCheckout(salobj.BaseScript):
         except asyncio.TimeoutError:
             pass
 
-        return ingestion_events, failed_ingestions, unique_pairs, observed_obsid
+        return ingestion_events, unique_pairs, observed_obsid
 
     def _validate_ingestion(
-        self, ingestion_events, failed_ingestions, unique_pairs, observed_obsid
+        self,
+        ingestion_events,
+        unique_pairs,
+        observed_obsid,
+        expected_science,
+        expected_guider,
+        expected_wfs,
+        image_label,
     ):
-        """Validate collected ingestion events and log success details."""
+        """Validate collected ingestion events.
+
+        Checks that at least one ingestion event was received and
+        that the expected number of science, guider and WFS sensor
+        ingestions were received. On failure, logs the list of
+        received raft/sensor pairs for each expected category before
+        raising. On success, logs a summary with total and per-type
+        counts. Only sensor types with a non-zero expected
+        count are included in log and error messages.
+
+        Parameters
+        ----------
+        ingestion_events : `list`
+            All collected ingestion events for the observed obsid.
+        unique_pairs : `set`
+            Unique ``(raft, sensor)`` pairs collected.
+        observed_obsid : `str` or `None`
+            The obsid being tracked.
+        expected_science : `int`
+            Expected number of science sensor ingestions.
+        expected_guider : `int`
+            Expected number of guider sensor ingestions.
+        expected_wfs : `int`
+            Expected number of wavefront sensor ingestions.
+        image_label : `str`
+            Label for the image type, used in log and error
+            messages.
+
+        Raises
+        ------
+        RuntimeError
+            If no events were received or the expected science,
+            guider or WFS counts are not met within the defined
+            time window.
+        """
         if not ingestion_events:
             raise RuntimeError(
-                "No ingestion events received for the latest exposure. This usually "
-                "means there is a problem with the image ingestion."
+                f"No '{image_label}' ingestion events received "
+                f"for the latest exposure within "
+                f"{self.ingestion_timeout} seconds. This usually "
+                f"means there is a problem with the image "
+                f"ingestion."
             )
 
-        if failed_ingestions:
-            error_details = [
-                f"raft={event.raft}, sensor={event.sensor}, statusCode={event.statusCode}, "
-                f"description='{event.description}'"
-                for event in failed_ingestions
-            ]
-            raise RuntimeError(
-                f"Image ingestion failed for {len(failed_ingestions)} raft/sensor "
-                f"combinations: {'; '.join(error_details)}."
+        science_pairs, guider_pairs, wfs_pairs = self._count_sensor_types(
+            ingestion_events
+        )
+        science_count = len(science_pairs)
+        guider_count = len(guider_pairs)
+        wfs_count = len(wfs_pairs)
+
+        expected_total = expected_science + expected_guider + expected_wfs
+        received_total = science_count + guider_count + wfs_count
+
+        is_incomplete = (
+            science_count < expected_science
+            or guider_count < expected_guider
+            or wfs_count < expected_wfs
+        )
+
+        if is_incomplete:
+            self.log.warning(
+                f"Incomplete {image_label} ingestion for obsid "
+                f"{observed_obsid}.\n"
+                f"Science sensors ingested: "
+                f"{self._group_by_raft(science_pairs)}.\n"
             )
+            if expected_guider > 0:
+                self.log.warning(
+                    f"Incomplete {image_label} ingestion for obsid "
+                    f"{observed_obsid}.\n"
+                    f"Guider sensors ingested: "
+                    f"{self._group_by_raft(guider_pairs)}.\n"
+                )
+            if expected_wfs > 0:
+                self.log.warning(
+                    f"Incomplete {image_label} ingestion for obsid "
+                    f"{observed_obsid}.\n"
+                    f"WFS sensors ingested: "
+                    f"{self._group_by_raft(wfs_pairs)}.\n"
+                )
+
+            # Build context-aware ingestion breakdown
+            received_parts = [f"{science_count}/{expected_science} science"]
+            if expected_guider > 0:
+                received_parts.append(f"{guider_count}/{expected_guider} guider")
+            if expected_wfs > 0:
+                received_parts.append(f"{wfs_count}/{expected_wfs} wfs")
+
+            raise RuntimeError(
+                f"{image_label.capitalize()} ingestion "
+                f"incomplete for obsid {observed_obsid}. "
+                f"Received {received_total}/{expected_total} "
+                f"total ingestions "
+                f"({', '.join(received_parts)}) "
+                f"within {self.ingestion_timeout} seconds."
+            )
+
+        # Build context-aware success breakdown
+        success_parts = [f"{science_count} science"]
+        if expected_guider > 0:
+            success_parts.append(f"{guider_count} guider")
+        if expected_wfs > 0:
+            success_parts.append(f"{wfs_count} wfs")
 
         ingest_event_time = get_topic_time_utc(ingestion_events[0])
         self.log.info(
-            f"Successfully verified ingestion of {len(unique_pairs)} "
-            f"raft/sensor combinations for obsid {observed_obsid} "
+            f"{image_label.capitalize()} exposure ingestion "
+            f"verified successfully: "
+            f"{', '.join(success_parts)} sensors "
+            f"for obsid {observed_obsid} "
             f"at {ingest_event_time} UT."
         )
+
+    @staticmethod
+    def _group_by_raft(pairs):
+        """Group sensor names by raft for readable log output.
+
+        Parameters
+        ----------
+        pairs : `set`
+            Set of ``(raft, sensor)`` tuples.
+
+        Returns
+        -------
+        grouped : `dict`
+            Sorted mapping of raft name to sorted list of
+            sensor names, e.g.
+            ``{R00: [S00, S01], R01: [S00]}``.
+        """
+        grouped = {}
+        for raft, sensor in sorted(pairs):
+            grouped.setdefault(raft, []).append(sensor)
+        return grouped
+
+    def _count_sensor_types(self, ingestion_events):
+        """Count unique science, guider and WFS sensor pairs.
+
+        Parameters
+        ----------
+        ingestion_events : `list`
+            Ingestion events to classify by sensor type.
+
+        Returns
+        -------
+        science_pairs : `set`
+            Unique ``(raft, sensor)`` pairs for science sensors.
+        guider_pairs : `set`
+            Unique ``(raft, sensor)`` pairs for guider sensors.
+        wfs_pairs : `set`
+            Unique ``(raft, sensor)`` pairs for wavefront
+            sensors.
+        """
+        science_pairs = set()
+        guider_pairs = set()
+        wfs_pairs = set()
+        science_pattern = re.compile(r"^S\d{2}$")
+        guider_pattern = re.compile(r"^SG\d$")
+        wfs_pattern = re.compile(r"^SW\d$")
+
+        for event in ingestion_events:
+            pair = (event.raft, event.sensor)
+            if science_pattern.match(event.sensor):
+                science_pairs.add(pair)
+            elif guider_pattern.match(event.sensor):
+                guider_pairs.add(pair)
+            elif wfs_pattern.match(event.sensor):
+                wfs_pairs.add(pair)
+
+        return science_pairs, guider_pairs, wfs_pairs

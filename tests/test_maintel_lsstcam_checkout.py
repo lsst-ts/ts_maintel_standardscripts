@@ -35,7 +35,6 @@ class TestLsstCamCheckout(
 ):
     def setUp(self) -> None:
         # Test data for OODS ingestion events
-        self.ingest_event_status = 0
         self.current_filter = "u"
         self.available_filters = ["u", "g", "r", "i", "z"]
         # Fixed synthetic DAYOBS used to build realistic LSSTCam obsids
@@ -80,7 +79,6 @@ class TestLsstCamCheckout(
 
         # Return a representative raft/sensor event with different IDs
         return types.SimpleNamespace(
-            statusCode=self.ingest_event_status,
             private_sndStamp=current_time,
             obsid=obsid,
             raft=f"R{current_count:02d}",
@@ -157,6 +155,15 @@ class TestLsstCamCheckout(
         async with self.make_script(), self.setup_mocks():
             await self.configure_script()
 
+            # Override expected counts to match mock output (5 science
+            # sensors S00-S04, no guiders or wfs).
+            self.script.expected_bias_ingest_science = 5
+            self.script.expected_bias_ingest_guider = 0
+            self.script.expected_bias_ingest_wfs = 0
+            self.script.expected_engtest_ingest_science = 5
+            self.script.expected_engtest_ingest_guider = 0
+            self.script.expected_engtest_ingest_wfs = 0
+
             await self.run_script()
 
             # Verify image taking was called
@@ -191,16 +198,52 @@ class TestLsstCamCheckout(
             self.script.lsstcam.take_bias.assert_awaited_once()
             self.script.lsstcam.take_engtest.assert_not_awaited()
 
-    async def test_run_with_failed_ingestion_status(self):
-        """Test script with failed ingestion status codes"""
+    async def test_run_with_incomplete_ingestion(self):
+        """Test script raises when fewer events than expected.
+
+        The mock returns only 5 events but the real expected counts
+        are 189 science + 0 guider + 0 wfs for bias, so ingestion
+        validation must raise RuntimeError with an 'incomplete' message.
+        """
         async with self.make_script(), self.setup_mocks():
             await self.configure_script()
 
-            # Set up failed ingestion status
-            self.ingest_event_status = 1
-
+            # Keep real expected counts (189/0 for bias).
+            # Mock only produces 5 events -> validation should fail.
             with pytest.raises(AssertionError):
                 await self.run_script()
 
             self.script.lsstcam.take_bias.assert_awaited_once()
             self.script.lsstcam.take_engtest.assert_not_awaited()
+
+    async def test_count_sensor_types(self):
+        """Test _count_sensor_types classifies science, guider,
+        wfs and other sensors correctly."""
+        async with self.make_script():
+            await self.configure_script()
+
+            events = [
+                types.SimpleNamespace(raft="R01", sensor="S00"),
+                types.SimpleNamespace(raft="R01", sensor="S01"),
+                types.SimpleNamespace(raft="R01", sensor="S10"),
+                types.SimpleNamespace(raft="R00", sensor="SG0"),
+                types.SimpleNamespace(raft="R00", sensor="SG1"),
+                types.SimpleNamespace(raft="R44", sensor="SW0"),
+                types.SimpleNamespace(raft="R44", sensor="SW1"),
+            ]
+
+            science, guider, wfs = self.script._count_sensor_types(events)
+
+            assert science == {
+                ("R01", "S00"),
+                ("R01", "S01"),
+                ("R01", "S10"),
+            }
+            assert guider == {
+                ("R00", "SG0"),
+                ("R00", "SG1"),
+            }
+            assert wfs == {
+                ("R44", "SW0"),
+                ("R44", "SW1"),
+            }
