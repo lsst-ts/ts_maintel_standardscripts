@@ -22,13 +22,13 @@
 __all__ = ["PartiallyOpenAndCloseShutter"]
 
 import asyncio
-import logging
 import types
 
 import yaml
 from lsst.ts import salobj
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.xml.enums import MTDome, MTMount
+from lsst.ts.xml.enums.Script import ScriptState
 
 
 class PartiallyOpenAndCloseShutter(salobj.BaseScript):
@@ -38,8 +38,7 @@ class PartiallyOpenAndCloseShutter(salobj.BaseScript):
     following steps:
 
     - Open the shutter.
-    - Wait some seconds (depending on the MTDome operational mode) to reach an
-      aperture level of ~ 60 cm.
+    - Wait until the shutter reaches the specified partial aperture level.
     - Stop the shutter.
     - Close the shutter.
 
@@ -49,6 +48,8 @@ class PartiallyOpenAndCloseShutter(salobj.BaseScript):
         Index of the Script SAL component.
     """
 
+    SHUTTER_FULL_APERTURE = 11.0  # meters
+
     def __init__(self, index: int) -> None:
         super().__init__(
             index=index,
@@ -57,19 +58,12 @@ class PartiallyOpenAndCloseShutter(salobj.BaseScript):
 
         self.mtcs = None
 
-        self.partially_open_target_level = 0.6  # in meters
-        # Shutter opening speeds for each dome operational mode
-        self.shutter_speed = {
-            "NORMAL": 0.04,  # m/s
-            "DEGRADED": 0.01,  # m/s
-        }
-        self.script_queue_latency = 5.0  # segs
+        self.opening_started = False
         self.sleep_time_before_close = 1.0  # segs
         self.telescope_horizon_elevation = 15.0  # deg
-        self.sleep_time = None
 
     @classmethod
-    def get_schema(cls):
+    def get_schema(cls) -> dict:
         url = "https://github.com/lsst-ts/"
         path = "ts_maintel_standardscripts/maintel/mtdome/partially_open_and_close_shutter.yaml"
         schema_yaml = f"""
@@ -79,13 +73,13 @@ class PartiallyOpenAndCloseShutter(salobj.BaseScript):
             description: Configuration for PartiallyOpenAndCloseShutter.
             type: object
             properties:
-              override_sleep_time:
+              target_aperture_level:
                 type: number
+                maximum: {cls.SHUTTER_FULL_APERTURE}
                 description: >-
-                  If this parameter is provided, forces a wait of the specified
-                  number of seconds before sending the shutter stop command. If
-                  this parameter is not provided, the sleep time is determined
-                  based on the current operational mode of the MTDome.
+                  The desired target aperture level (in meters) that the shutter
+                  doors must reach before being stopped and closed again.
+                default: 0.6
             additionalProperties: false
             """
         return yaml.safe_load(schema_yaml)
@@ -99,6 +93,7 @@ class PartiallyOpenAndCloseShutter(salobj.BaseScript):
             Configuration.
         """
 
+        self.config = config
         if self.mtcs is None:
             self.log.debug("Creating MTCS.")
             self.mtcs = MTCS(
@@ -107,126 +102,147 @@ class PartiallyOpenAndCloseShutter(salobj.BaseScript):
                 log=self.log,
             )
             await self.mtcs.start_task
-
-        if not hasattr(config, "override_sleep_time"):
-            # Get current dome operational mode
-            self.mtcs.rem.mtdome.evt_operationalMode.flush()
-            operational_mode = await self.mtcs.rem.mtdome.evt_operationalMode.aget(
-                timeout=self.mtcs.fast_timeout
-            )
-            # Use the apropieate shutter speed value
-            shutter_current_speed = self.shutter_speed[operational_mode.name]
-            # Calculate necesary sleep time
-            self.sleep_time = self.calculate_sleep_time(
-                aperture_level=self.partially_open_target_level,
-                shutter_speed=shutter_current_speed,
-                queue_latency=self.script_queue_latency,
-            )
-            self.log.log(
-                level=(
-                    logging.INFO
-                    if operational_mode == MTDome.OperationalMode.NORMAL
-                    else logging.WARNING
-                ),
-                msg=(
-                    f"The dome operational mode is {operational_mode!r}, "
-                    f"setting {self.sleep_time} segs for sleep time."
-                ),
-            )
-        else:
-            self.log.warning(
-                f"Overriding sleep time with value {config.override_sleep_time} segs"
-            )
-            self.sleep_time = config.override_sleep_time
-
-    @staticmethod
-    def calculate_sleep_time(
-        aperture_level: float, shutter_speed: float, queue_latency: float
-    ) -> float:
-        """Calculates the required sleep time before sending the stop command.
-
-        This ensures that the shutter reaches the specified ``aperture_level``
-        (in meters), given the shutter opening speed and an estimated script
-        queue latency.
-
-        Parameters
-        ----------
-        aperture_level : `float`
-            Target shutter aperture level in meters.
-        shutter_speed : `float`
-            Current shutter opening speed in meters per second (m/s).
-        queue_latency : `float`
-            Estimated time, in seconds, for the close command to be executed
-            after it is sent.
-
-        Returns
-        -------
-        sleep_time : `float`
-            Time, in seconds, to wait before sending the close command so that
-            the shutter reaches ``aperture_level``.
-        """
-        return aperture_level / shutter_speed - queue_latency
+        # Convert aperture from meters to percentage
+        self.target_position = (
+            self.config.target_aperture_level / self.SHUTTER_FULL_APERTURE
+        ) * 100
 
     def set_metadata(self, metadata) -> None:
+        shutter_speed_fast = 0.04  # m/s
+        shutter_speed_slow = 0.01  # m/s
+        shutter_speed_avg = (shutter_speed_fast + shutter_speed_slow) * 0.5
         metadata.duration = (
-            self.sleep_time + self.sleep_time_before_close + self.mtcs.fast_timeout
+            self.config.target_aperture_level / shutter_speed_avg
+            + self.sleep_time_before_close
+            + self.mtcs.fast_timeout
         )
 
-    async def run(self) -> None:
-        # Check TMA status
+    async def mtmount_is_parked_at_horizon(self) -> bool:
+        """Checks whether the TMA is parked at horizon.
+
+        The check is based on the telescope elevation operational limit.
+
+        """
         mtmount_elevation = await self.mtcs.rem.mtmount.tel_elevation.aget(
             timeout=self.mtcs.fast_timeout
         )
-        mtmount_parked_at_horizon = (
-            mtmount_elevation.actualPosition <= self.telescope_horizon_elevation
-        )
-        # Check mirror covers status
+        return mtmount_elevation.actualPosition <= self.telescope_horizon_elevation
+
+    async def mirror_covers_are_in_state(
+        self, state: MTMount.DeployableMotionState
+    ) -> bool:
+        """Check whether the M1M3 mirror covers are in the specified state.
+
+        Parameters
+        ----------
+        state : `MTMount.DeployableMotionState`
+            State to compare against the current mirror covers state.
+
+        Returns
+        -------
+        match : `bool`
+            `True` if the current mirror covers state matches ``state``,
+            otherwise `False`.
+        """
         covers_state = await self.mtcs.rem.mtmount.evt_mirrorCoversMotionState.aget(
             timeout=self.mtcs.fast_timeout
         )
-        covers_retracted = covers_state.state == MTMount.DeployableMotionState.RETRACTED
-        # Check shutter status
+        return covers_state.state == state
+
+    async def assert_mtdome_open_safety_conditions(self) -> None:
+        """Assert that the safety conditions to open the dome shutter are met.
+
+        The dome shutter can be safely opened in one of the following
+        scenarios:
+        - The mirror covers are deployed (closed).
+        - The mirror covers are retracted (open) and the TMA is parked at the
+          horizon.
+        """
+        if await self.mirror_covers_are_in_state(
+            MTMount.DeployableMotionState.RETRACTED
+        ):
+            assert (
+                await self.mtmount_is_parked_at_horizon()
+            ), "The TMA must be parked at the horizon to open the dome with the mirror covers retracted."
+        else:
+            assert await self.mirror_covers_are_in_state(
+                MTMount.DeployableMotionState.DEPLOYED
+            ), "Mirror covers needs to be eather retracted or deployed."
+
+    async def assert_shutter_fully_closed(self) -> None:
+        """Assert that both doors of the dome shutter are closed."""
         shutter_state = await self.mtcs.rem.mtdome.evt_shutterMotion.aget(
             timeout=self.mtcs.fast_timeout
         )
         shutter_state.state = [
             MTDome.MotionState(value) for value in shutter_state.state
         ]
-        shutter_fully_closed = all(
+        assert all(
             state == MTDome.MotionState.CLOSED for state in shutter_state.state
+        ), f"The shutter must be fully closed. Shutter state: {shutter_state!r}."
+
+    async def start_shutter_opening(self) -> None:
+        """Initiate the opening of the shutter."""
+        self.opening_started = True
+        await self.mtcs.rem.mtdome.cmd_openShutter.start(timeout=self.mtcs.long_timeout)
+
+    async def wait_for_shutter_to_reach_aperture_level(self) -> None:
+        """Wait for both dome shutter doors to reach the target position"""
+        self.log.info(
+            f"Waiting for the shutter doors to reach {self.target_position}% aperture."
         )
-        # Check script pre-conditions are met
-        if mtmount_parked_at_horizon and covers_retracted and shutter_fully_closed:
-            # Initiate the shutter opening
-            await self.mtcs.rem.mtdome.cmd_openShutter.start(
-                timeout=self.mtcs.long_timeout
-            )
-            # Wait for the shutter to reach the desired aperture level
-            self.log.info(
-                f"Sleep for {self.sleep_time} seconds, waiting for the shutter to reach "
-                f"~ {self.partially_open_target_level * 100:.0f} cm of aperture level."
-            )
-            await self.checkpoint(
-                f"Sleep for {self.sleep_time} seconds, waiting for the shutter to reach "
-                f"~ {self.partially_open_target_level * 100:.0f} cm of aperture level."
-            )
-            await asyncio.sleep(self.sleep_time)
-            # Send the stop command to abort the opening process
-            await self.mtcs.rem.mtdome.cmd_stop.set_start(
-                engageBrakes=False,
-                subSystemIds=MTDome.SubSystemId.APSCS,
+        doors_position = await self.mtcs.rem.mtdome.tel_apertureShutter.next(
+            flush=True,
+            timeout=self.mtcs.fast_timeout,
+        )
+        while all(
+            position < self.target_position
+            for position in doors_position.positionActual
+        ):
+            doors_position = await self.mtcs.rem.mtdome.tel_apertureShutter.next(
                 timeout=self.mtcs.fast_timeout,
             )
-            # Close the shutter
-            await asyncio.sleep(self.sleep_time_before_close)
-            await self.mtcs.rem.mtdome.cmd_closeShutter.start(
-                timeout=self.mtcs.long_timeout
-            )
-        else:
-            raise RuntimeError(
-                "The M1M3 mirror covers must be retracted, the TMA must be "
-                "parked at horizon, and the dome shutter must be fully closed. "
-                f"Current covers state: {MTMount.DeployableMotionState(covers_state.state)!r}. "
-                f"Current TMA elevation: {mtmount_elevation.actualPosition} "
-                f"Current shutter state: {shutter_state.state!r}."
-            )
+
+    async def stop_and_close_shutter(self) -> None:
+        """Stop the dome shutter and close."""
+        self.log.info("Closing the dome shutter.")
+        # Send the stop command to abort the opening process
+        await self.mtcs.rem.mtdome.cmd_stop.set_start(
+            engageBrakes=False,
+            subSystemIds=MTDome.SubSystemId.APSCS,
+            timeout=self.mtcs.fast_timeout,
+        )
+        # Close the shutter
+        await asyncio.sleep(self.sleep_time_before_close)
+        await self.mtcs.rem.mtdome.cmd_closeShutter.start(
+            timeout=self.mtcs.long_timeout
+        )
+
+    async def run(self) -> None:
+        await self.assert_shutter_fully_closed()
+        await self.assert_mtdome_open_safety_conditions()
+
+        await self.start_shutter_opening()
+        await self.wait_for_shutter_to_reach_aperture_level()
+        await self.stop_and_close_shutter()
+
+    async def cleanup(self) -> None:
+        if self.state.state != ScriptState.ENDING:
+            # abnormal termination
+            if self.opening_started:
+                self.log.warning(
+                    f"Terminating with state={self.state.state}: stop and close dome shutter."
+                )
+                try:
+                    await asyncio.wait_for(
+                        self.stop_and_close_shutter(),
+                        timeout=self.mtcs.fast_timeout + self.mtcs.long_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    self.log.exception(
+                        "Stop and close shutter operations timed out during the cleanup procedure."
+                    )
+                except Exception:
+                    self.log.exception(
+                        "Unexpected exception while stopping and closing the dome shutter."
+                    )
