@@ -72,6 +72,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         self.assertion_errors = []
 
         self.tel_raise_m1m3_min_el = 20.0
+        self.home_both_axes_timeout = 300.0
 
     async def configure_tcs(self) -> None:
         """Initialize MTCS if not already initialized."""
@@ -403,12 +404,23 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         Ensure both axes of the MTMount are homed.
 
         This method checks if both the azimuth and elevation axes of the
-        MTMount are homed. If either axes are not homed, it issues a
-        `cmd_homeBothAxes` command to home both axes.
+        MTMount are homed. If either axis is not homed, it enables the
+        M1M3 booster valve via a context manager and issues a
+        ``cmd_homeBothAxes`` command to home both axes.
+
+        The booster valve context manager
+        (``self.mtcs.m1m3_booster_valve()``) activates the booster valves
+        during the homing motion to protect the M1M3 mirror, following the
+        same pattern used by the ``home_both_axes`` script.
+
+        The M1M3 force balance system must be enabled before calling
+        this method. The ``run`` method ensures this by enabling the
+        force balance system in a prior step.
 
         Raises
         ------
-        RuntimeError: On failure to home axes or retrieve status.
+        RuntimeError
+            On failure to home axes or retrieve status.
         """
         try:
             is_homed = await self._is_mtmount_homed()
@@ -418,9 +430,10 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         if not is_homed:
             self.log.info("Homing both axes of the telescope.")
             await self.checkpoint("Homing both axes.")
-            await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
-                timeout=self.mtcs.long_timeout
-            )
+            async with self.mtcs.m1m3_booster_valve():
+                await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
+                    timeout=self.home_both_axes_timeout
+                )
         else:
             self.log.info("Telescope is already homed. Nothing to do.")
 
@@ -567,11 +580,11 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         await self.checkpoint("Ensure MTM1M3 is raised at safe elevation.")
         await self.ensure_m1m3_raised_at_safe_elevation()
 
-        await self.checkpoint("Ensure MTMount is homed.")
-        await self.ensure_mtmount_homed()
-
         await self.checkpoint("Ensure M1M3 Force Balance System is enabled.")
         await self.ensure_m1m3_balance_system_enabled()
+
+        await self.checkpoint("Ensure MTMount is homed.")
+        await self.ensure_mtmount_homed()
 
         await self.checkpoint("Ensure M1M3 Slew Controller Flags are enabled.")
         await self.ensure_m1m3_slew_controller_flags_enabled()
