@@ -1,0 +1,1 @@
+Update script ``point_azel.py`` to raise an exception if the MTM1M3 component is ignored.
