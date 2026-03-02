@@ -48,6 +48,24 @@ class PointAzEl(BasePointAzEl):
     def tcs(self):
         return self.mtcs
 
+    async def configure(self, config):
+        """Configure script.
+
+        Parameters
+        ----------
+        config : `types.SimpleNamespace`
+            Script configuration, as defined by `schema`.
+        """
+
+        if hasattr(config, "ignore"):
+            if "mtm1m3" in map(str.lower, config.ignore):
+                raise ValueError(
+                    "The MTM1M3 component cannot be ignored. "
+                    "To move the telescope without MTM1M3 available, use the TMA EUI."
+                )
+
+        await super().configure(config=config)
+
     async def get_current_azimuth(self):
         mount_az = await self.mtcs.rem.mtmount.tel_azimuth.next(
             flush=True,

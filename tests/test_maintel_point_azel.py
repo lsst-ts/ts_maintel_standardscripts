@@ -96,6 +96,17 @@ class TestPointAzEl(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
             with pytest.raises(salobj.ExpectedError):
                 await self.configure_script(el=el, az=az)
 
+    async def test_config_ignore_m1m3_fail(self) -> None:
+        async with self.make_dry_script():
+            az = 0.0
+            el = 80.0
+            with self.assertRaises(salobj.ExpectedError):
+                # Ignore MTM1M3 using the component name in attribute format
+                await self.configure_script(az=az, el=el, ignore=["comp1", "mtm1m3"])
+            with self.assertRaises(salobj.ExpectedError):
+                # Ignore MTM1M3 using the component name in salobj format
+                await self.configure_script(az=az, el=el, ignore=["comp1", "MTM1M3"])
+
     async def test_config_ignore(self) -> None:
         async with self.make_dry_script():
             az = 0.0
