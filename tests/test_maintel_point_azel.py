@@ -25,6 +25,7 @@ import unittest
 import pytest
 from lsst.ts import salobj
 from lsst.ts.maintel.standardscripts import PointAzEl
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts import BaseScriptTestCase
 
 
@@ -95,17 +96,6 @@ class TestPointAzEl(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
         async with self.make_dry_script():
             with pytest.raises(salobj.ExpectedError):
                 await self.configure_script(el=el, az=az)
-
-    async def test_config_ignore_m1m3_fail(self) -> None:
-        async with self.make_dry_script():
-            az = 0.0
-            el = 80.0
-            with self.assertRaises(salobj.ExpectedError):
-                # Ignore MTM1M3 using the component name in attribute format
-                await self.configure_script(az=az, el=el, ignore=["comp1", "mtm1m3"])
-            with self.assertRaises(salobj.ExpectedError):
-                # Ignore MTM1M3 using the component name in salobj format
-                await self.configure_script(az=az, el=el, ignore=["comp1", "MTM1M3"])
 
     async def test_config_ignore(self) -> None:
         async with self.make_dry_script():
@@ -292,6 +282,50 @@ class TestPointAzEl(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                 wait_dome=wait_dome,
                 slew_timeout=slew_timeout,
             )
+
+    async def test_run_fail_ignore_m1m3_with_attr_format(self) -> None:
+        async with self.make_script():
+            self.script.mtcs = MTCS(
+                domain=self.script.domain,
+                intended_usage=MTCSUsages.DryTest,
+                log=self.script.log,
+            )
+            self.script.mtcs.rem = unittest.mock.AsyncMock()
+            self.script.mtcs.stop_tracking = unittest.mock.AsyncMock()
+
+            az = 45.0
+            el = 70.0
+
+            await self.configure_script(
+                az=az,
+                el=el,
+                ignore=["comp1", "mtm1m3"],
+            )
+
+            with pytest.raises(AssertionError):
+                await self.run_script()
+
+    async def test_run_fail_ignore_m1m3_with_salobj_format(self) -> None:
+        async with self.make_script():
+            self.script.mtcs = MTCS(
+                domain=self.script.domain,
+                intended_usage=MTCSUsages.DryTest,
+                log=self.script.log,
+            )
+            self.script.mtcs.rem = unittest.mock.AsyncMock()
+            self.script.mtcs.stop_tracking = unittest.mock.AsyncMock()
+
+            az = 45.0
+            el = 70.0
+
+            await self.configure_script(
+                az=az,
+                el=el,
+                ignore=["comp1", "MTM1M3"],
+            )
+
+            with pytest.raises(AssertionError):
+                await self.run_script()
 
 
 if __name__ == "__main__":
