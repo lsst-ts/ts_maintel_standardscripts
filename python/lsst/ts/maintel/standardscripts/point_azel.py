@@ -48,6 +48,20 @@ class PointAzEl(BasePointAzEl):
     def tcs(self):
         return self.mtcs
 
+    async def assert_m1m3_enabled(self) -> None:
+        """Assert that the M1M3 component is not ignored."""
+        assert self.mtcs.check.mtm1m3, (
+            "The MTM1M3 component cannot be ignored. "
+            "To move the telescope without MTM1M3 available, use the TMA EUI."
+        )
+
+    async def assert_feasibility(self) -> None:
+        """Override parent method and ensure m1m3 is not ignored
+        before calling the parent assert feasibility method.
+        """
+        await self.assert_m1m3_enabled()
+        await super().assert_feasibility()
+
     async def get_current_azimuth(self):
         mount_az = await self.mtcs.rem.mtmount.tel_azimuth.next(
             flush=True,
