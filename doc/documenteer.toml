@@ -1,0 +1,15 @@
+[project]
+title = "ts_maintel_standardscripts"
+copyright = "2019-2026 Association of Universities for Research in Astronomy, Inc. (AURA)"
+
+[project.python]
+package = "ts_maintel_standardscripts"
+documentation_url_key = "documentation"
+github_url_key = "repository"
+
+[sphinx.intersphinx.projects]
+ts_standardscripts = "https://ts-standardscripts.lsst.io"
+ts_observatory_control = "https://ts-observatory-control.lsst.io"
+ts_salobj = "https://ts-salobj.lsst.io"
+ts_utils = "https://ts-utils.lsst.io"
+ts_xml = "https://ts-xml.lsst.io"
