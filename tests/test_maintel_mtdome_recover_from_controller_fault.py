@@ -119,7 +119,9 @@ class TestRecoverFromControllerFault(
             self.script.mtcs.rem.mtdome.cmd_exitFault.set_start.assert_awaited_once_with(
                 subSystemIds=SubSystemId.AMCS, timeout=self.script.mtcs.fast_timeout
             )
-            self.script.mtcs.slew_dome_to.assert_awaited_once_with(az=target_az)
+            self.script.mtcs.slew_dome_to.assert_awaited_once_with(
+                az=target_az, timeout=self.script.fast_dome_move_timeout
+            )
             self.script.mtcs.enable_dome_following.assert_awaited_once()
 
     async def test_run_success_dome_following_disabled(self):
@@ -148,7 +150,9 @@ class TestRecoverFromControllerFault(
             self.script.mtcs.rem.mtdome.cmd_exitFault.set_start.assert_awaited_once_with(
                 subSystemIds=SubSystemId.AMCS, timeout=self.script.mtcs.fast_timeout
             )
-            self.script.mtcs.slew_dome_to.assert_awaited_once_with(az=target_az)
+            self.script.mtcs.slew_dome_to.assert_awaited_once_with(
+                az=target_az, timeout=self.script.fast_dome_move_timeout
+            )
             self.script.mtcs.enable_dome_following.assert_awaited_once()
 
     async def test_run_success_after_failing_exitFault(self):
@@ -191,7 +195,10 @@ class TestRecoverFromControllerFault(
             )
             # Check slew dome attempts
             expected_slew_dome_to_calls = [
-                unittest.mock.call(az=offset_az + delta_move)
+                unittest.mock.call(
+                    az=offset_az + delta_move,
+                    timeout=self.script.fast_dome_move_timeout,
+                )
                 for offset_az in az_positions[:-1]
             ]
             self.script.mtcs.slew_dome_to.assert_has_awaits(expected_slew_dome_to_calls)
@@ -230,7 +237,10 @@ class TestRecoverFromControllerFault(
             )
             # Check slew dome attempts
             expected_slew_dome_to_calls = [
-                unittest.mock.call(az=offset_az + delta_move)
+                unittest.mock.call(
+                    az=offset_az + delta_move,
+                    timeout=self.script.fast_dome_move_timeout,
+                )
                 for offset_az in az_positions[:-1]
             ]
             self.script.mtcs.slew_dome_to.assert_has_awaits(expected_slew_dome_to_calls)
@@ -303,7 +313,9 @@ class TestRecoverFromControllerFault(
             )
             # Check slew dome attempts
             expected_slew_dome_to_calls = [
-                unittest.mock.call(az=target_az)
+                unittest.mock.call(
+                    az=target_az, timeout=self.script.fast_dome_move_timeout
+                )
                 for i in range(self.script.MAX_ATTEMPTS)
             ]
             self.script.mtcs.slew_dome_to.assert_has_awaits(expected_slew_dome_to_calls)
@@ -347,7 +359,10 @@ class TestRecoverFromControllerFault(
             )
             # Check slew dome attempts
             expected_slew_dome_to_calls = [
-                unittest.mock.call(az=offset_az + delta_move)
+                unittest.mock.call(
+                    az=offset_az + delta_move,
+                    timeout=self.script.fast_dome_move_timeout,
+                )
                 for offset_az in az_positions[:-1]
             ]
             self.script.mtcs.slew_dome_to.assert_has_awaits(expected_slew_dome_to_calls)
