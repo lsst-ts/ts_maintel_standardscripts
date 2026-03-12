@@ -60,6 +60,7 @@ class RecoverFromControllerFault(salobj.BaseScript):
         )
         self.mtcs = None
         self.exitFault_subSystemIds = SubSystemId.AMCS  # Azimuth Motion Control System
+        self.fast_dome_move_timeout = 30
 
     @classmethod
     def get_schema(cls):
@@ -110,8 +111,8 @@ class RecoverFromControllerFault(salobj.BaseScript):
             )
 
     def set_metadata(self, metadata):
-        # An estimate based on slew_to() operation.
-        metadata.duration = self.mtcs.long_long_timeout + self.mtcs.move_dome_timeout
+        # An estimate based on slew_to() operation and fast timeout
+        metadata.duration = self.mtcs.long_long_timeout + self.fast_dome_move_timeout
 
     async def run(self):
         # Check MTDome following state and disable dome following if necessary
@@ -151,7 +152,8 @@ class RecoverFromControllerFault(salobj.BaseScript):
                 self.log.warning(
                     f"Dome did not reach target position on attempt {attempt}. Retrying..."
                 )
-                target_az = (final_az + self.config.delta_move) % 360
+                if final_az is not None:
+                    target_az = (final_az + self.config.delta_move) % 360
 
         # Enable the dome following.
         await self.mtcs.enable_dome_following()
@@ -170,7 +172,14 @@ class RecoverFromControllerFault(salobj.BaseScript):
 
     async def move_dome_and_check_success(self, target_az):
         self.log.info(f"Attempting to slew dome to {target_az} deg...")
-        await self.mtcs.slew_dome_to(az=target_az)
+        try:
+            await self.mtcs.slew_dome_to(
+                az=target_az, timeout=self.fast_dome_move_timeout
+            )
+        except Exception as err:
+            self.log.warning(f"slew dome failed: {err}")
+            return False, None
+
         after_slew_az = await self.mtcs.rem.mtdome.tel_azimuth.next(
             flush=True, timeout=self.mtcs.fast_timeout
         )
