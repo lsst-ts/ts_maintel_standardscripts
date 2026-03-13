@@ -26,12 +26,15 @@ import asyncio
 import types
 import typing
 
+import astropy.units as u
 import numpy as np
 import yaml
+from astropy.coordinates import Angle
 from lsst.ts import salobj
 from lsst.ts.observatory.control import BaseCamera
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.utils.enums import ClosedLoopMode, DOFName
+from lsst.ts.observatory.control.utils.extras.guider_roi import GuiderROIs
 
 STD_TIMEOUT = 10
 CMD_TIMEOUT = 400
@@ -85,6 +88,10 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
         # exposure time for the intra/extra images (in seconds)
         self.exposure_time = None
         self.n_images = 9
+
+        # Guider ROI
+        self.roi_spec = None
+        self.set_roi_failed = False
 
         # Define operation mode handler function
         self.operation_model_handlers = {
@@ -168,7 +175,7 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                   minimum: 0
                 minItems: 50
                 maxItems: 50
-                default: {[0.004]*50}
+                default: {[0.004] * 50}
               max_iter:
                 description:  >-
                     Maximum number of iterations.
@@ -268,6 +275,35 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                     Use OCPS to run the wavefront estimation pipeline.
                 type: boolean
                 default: true
+              set_roi:
+                description: Whether to set the ROI specification. If false, roi_spec is ignored.
+                type: boolean
+                default: true
+              roi_spec:
+                description: Definition of the ROI Specification.
+                type: object
+                additionalProperties: false
+                required:
+                  - common
+                properties:
+                  common:
+                    description: Common properties to all ROIs.
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - size
+                      - integration_time_millis
+                    properties:
+                      size:
+                        description: Size of the roi box.
+                        type: number
+                        minimum: 10
+                        maximum: 400
+                      integration_time_millis:
+                        description: Guider exposure integration time in milliseconds.
+                        type: number
+                        minimum: 5
+                        maximum: 200
               ignore:
                   description: >-
                       CSCs from the group to ignore in status check. Name must
@@ -337,8 +373,80 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
         self.elevation = config.el
         self.rotation = config.rot
 
+        set_roi = getattr(config, "set_roi", True)
+        self.log.info(f"{set_roi=}.")
+
+        if set_roi:
+            self.log.debug("Setting guider roi.")
+            try:
+                self.roi_spec = await self.get_guider_roi(
+                    getattr(config, "roi_spec", dict()).get("common")
+                )
+            except Exception as e:
+                self.set_roi_failed = True
+                self.log.info(
+                    f"Failed to get guider ROI, ignoring. Feature still under development. {e}",
+                    exc_info=True,
+                )
+        else:
+            self.log.debug("Reset guider roi.")
+            self.roi_spec = None
+            self.camera.reset_guider_roi()
+
+        if self.roi_spec is not None:
+            await self.camera.init_guider(roi_spec=self.roi_spec)
+
         if hasattr(config, "ignore"):
             self.mtcs.disable_checks_for_components(components=config.ignore)
+
+    async def get_guider_roi(self, roi_spec_common):
+        """Retrieve the guider roi from the current telescope position."""
+        try:
+            current_target = await self.mtcs.rem.mtptg.evt_currentTarget.aget(
+                timeout=self.mtcs.fast_timeout
+            )
+            target_ra_angle = Angle(current_target.ra, unit=u.rad).to(u.deg)
+            target_dec_angle = Angle(current_target.declination, unit=u.rad).to(u.deg)
+            sky_angle = Angle(current_target.rotAngle, unit=u.deg)
+            self.log.info(
+                f"Current target: ra={target_ra_angle}, dec={target_dec_angle}, sky_angle={sky_angle}."
+            )
+        except asyncio.TimeoutError:
+            self.log.info(
+                "Failed to retrieve current target coordinates. Continuing without guider roi."
+            )
+            return None
+
+        current_filter = await self.camera.get_current_filter()
+
+        band = current_filter[0]
+
+        roi_size = (
+            self.camera.DEFAULT_GUIDER_ROI_ROWS
+            if roi_spec_common is None
+            else roi_spec_common["size"]
+        )
+        roi_time_ms = (
+            self.camera.DEFAULT_GUIDER_ROI_TIME_MS
+            if roi_spec_common is None
+            else roi_spec_common["integration_time_millis"]
+        )
+
+        guider_rois = GuiderROIs(log=self.log)
+        roi_spec, _ = guider_rois.get_guider_rois(
+            ra=target_ra_angle.to(u.deg).value,
+            dec=target_dec_angle.to(u.deg).value,
+            sky_angle=sky_angle.to(u.deg).value,
+            roi_size=roi_size,
+            roi_time=roi_time_ms,
+            band=band,
+            npix_edge=50,
+            use_guider=True,
+            use_wavefront=False,
+            use_science=False,
+        )
+
+        return roi_spec
 
     def set_metadata(self, metadata: salobj.type_hints.BaseMsgType) -> None:
         """Sets script metadata.
@@ -428,7 +536,6 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
         return intra_image, extra_image
 
     async def wait_for_images_in_oods(self):
-
         for _ in range(self.n_images):
             try:
                 image_in_oods = await self.oods.evt_imageInOODS.next(
