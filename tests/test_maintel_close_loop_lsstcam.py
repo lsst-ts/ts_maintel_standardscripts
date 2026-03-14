@@ -28,6 +28,7 @@ import numpy as np
 import yaml
 from lsst.ts import standardscripts
 from lsst.ts.maintel.standardscripts import CloseLoopLSSTCam
+from lsst.ts.observatory.control import ROI, ROICommon, ROISpec
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.utils.enums import ClosedLoopMode
@@ -63,6 +64,26 @@ class TestCloseLoopLSSTCam(
                 "tel_rotation.next.return_value": types.SimpleNamespace(
                     actualPosition=0.0
                 ),
+            }
+        )
+
+        self.script.mtcs.rem.mtptg = unittest.mock.AsyncMock()
+        self.script.mtcs.rem.mtptg.configure_mock(
+            **{
+                "evt_currentTarget.aget.return_value": types.SimpleNamespace(
+                    ra=0.17,
+                    declination=-0.52,
+                    rotAngle=0.0,
+                )
+            }
+        )
+
+        self.script._camera.rem.mtcamera = unittest.mock.AsyncMock()
+        self.script._camera.rem.mtcamera.configure_mock(
+            **{
+                "evt_endSetFilter.aget.return_value": types.SimpleNamespace(
+                    filterName="r",
+                )
             }
         )
 
@@ -164,17 +185,48 @@ class TestCloseLoopLSSTCam(
 
     async def test_run(self):
         # Start the test itself
-        async with self.make_script():
-            await self.configure_script(
-                max_iter=10,
-                filter="r",
-                used_dofs=[0, 1, 2, 3, 4],
-            )
 
-            # Run the script
-            await self.run_script()
+        class DummyGuiderROIs:
+            def __init__(self, log=None):
+                pass
 
-            assert all(self.state_0 == np.zeros(50))
+            def get_guider_rois(
+                self,
+                ra,
+                dec,
+                sky_angle,
+                roi_size,
+                roi_time,
+                band,
+                npix_edge=50,
+                use_guider=True,
+                use_wavefront=False,
+                use_science=False,
+            ):
+                roi_spec = ROISpec(
+                    common=ROICommon(
+                        rows=roi_size, cols=roi_size, integration_time_millis=roi_time
+                    ),
+                    roi=dict(R00SG0=ROI(segment=7, start_row=10, start_col=20)),
+                )
+                return roi_spec, None
+
+        with unittest.mock.patch(
+            "lsst.ts.maintel.standardscripts.base_close_loop.GuiderROIs",
+            DummyGuiderROIs,
+        ):
+            async with self.make_script():
+                await self.configure_script(
+                    max_iter=10,
+                    filter="r",
+                    used_dofs=[0, 1, 2, 3, 4],
+                )
+
+                # Run the script
+                await self.run_script()
+
+                assert all(self.state_0 == np.zeros(50))
+                assert not self.script.set_roi_failed
 
 
 if __name__ == "__main__":
