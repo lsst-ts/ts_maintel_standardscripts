@@ -65,6 +65,11 @@ class TestEnsureOnSkyReadiness(
         self.script.mtcs.unpark_dome = mock.AsyncMock()
         self.script.mtcs.enable_dome_following = mock.AsyncMock()
 
+        # Mock m1m3_booster_valve as an async context manager
+        self.script.mtcs.m1m3_booster_valve = mock.MagicMock(
+            return_value=mock.AsyncMock()
+        )
+
         # Mock remotes/events
         self.script.mtcs.rem = mock.Mock()
         self.script.mtcs.rem.mtmount = mock.Mock()
@@ -364,6 +369,8 @@ class TestEnsureOnSkyReadiness(
             ) as mock_home:
                 await self.run_script()
                 mock_home.assert_awaited_once()
+                # Verify booster valve context manager was used
+                self.script.mtcs.m1m3_booster_valve.assert_called_once()
 
     async def test_run_ensure_m1m3_raised_when_parked(self):
         """Test that script raised M1M3 if it is PARKED."""
