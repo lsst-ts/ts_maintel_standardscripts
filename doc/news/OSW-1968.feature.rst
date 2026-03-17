@@ -1,0 +1,1 @@
+In mtdome/recover_from_controller_fault.py, add feature to verify azEnabled log_event after sending exitFault cmd.
