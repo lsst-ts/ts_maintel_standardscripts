@@ -168,8 +168,8 @@ class RecoverFromControllerFault(salobj.BaseScript):
         await self.mtcs.enable_dome_following()
 
         if not recovery_success:
-            az_enabled = await self.mtcs.rem.mtdome.evt_azEnabled.get(
-                flush=True, timeout=self.mtcs.fast_timeout
+            az_enabled = await self.mtcs.rem.mtdome.evt_azEnabled.aget(
+                timeout=self.mtcs.fast_timeout
             )
 
             self.log.error(
@@ -205,19 +205,31 @@ class RecoverFromControllerFault(salobj.BaseScript):
         return moved, after_slew_az.positionActual
 
     async def ensure_az_fault_cleared(self, timeout) -> bool:
-        """Return True if azEnabled faultCode becomes 0 after exitFault."""
+        """Return True if azEnabled faultCode becomes 0 after exitFault.
 
-        # Check current state first
-        az_enabled = await self.mtcs.rem.mtdome.evt_azEnabled.get()
+        Parameters
+        ----------
+        timeout : `float`
+            Maximum time (seconds) to wait for a new ``evt_azEnabled`` event.
 
-        if az_enabled.faultCode == 0:
-            return True
+        Returns
+        -------
+        cleared : `bool`
+            ``True`` if a state with ``faultCode == 0`` is observed within
+            the timeout period, otherwise ``False``.
+        """
 
-        # Then wait for an update
-        try:
-            az_enabled = await self.mtcs.rem.mtdome.evt_azEnabled.next(
-                flush=True,
-                timeout=timeout,
-            )
-        except Exception:
-            return False
+        self.mtcs.rem.mtdome.evt_azEnabled.flush()
+
+        az_enabled = await self.mtcs.rem.mtdome.evt_azEnabled.aget(timeout=timeout)
+
+        while az_enabled.faultCode != 0:
+            try:
+                az_enabled = await self.mtcs.rem.mtdome.evt_azEnabled.next(
+                    flush=False,
+                    timeout=timeout,
+                )
+            except TimeoutError:
+                return False
+
+        return True
