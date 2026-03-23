@@ -113,12 +113,33 @@ class TestRecoverFromControllerFault(
                 ]
             )
 
-            self.script.mtcs.rem.mtdome.evt_azEnabled.aget = unittest.mock.AsyncMock(
-                return_value=SimpleNamespace(faultCode=0)
-            )
-
             self.script.mtcs.rem.mtdome.evt_azEnabled.next = unittest.mock.AsyncMock(
-                return_value=SimpleNamespace(faultCode=0)
+                side_effect=[
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                ]
             )
 
             await self.run_script()
@@ -150,12 +171,33 @@ class TestRecoverFromControllerFault(
                 ]
             )
 
-            self.script.mtcs.rem.mtdome.evt_azEnabled.aget = unittest.mock.AsyncMock(
-                return_value=SimpleNamespace(faultCode=0)
-            )
-
             self.script.mtcs.rem.mtdome.evt_azEnabled.next = unittest.mock.AsyncMock(
-                return_value=SimpleNamespace(faultCode=0)
+                side_effect=[
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                ]
             )
 
             self.script.mtcs.check_dome_following.configure_mock(return_value=False)
@@ -187,12 +229,33 @@ class TestRecoverFromControllerFault(
 
             self.configure_mock_tel_azimuth(az_positions)
 
-            self.script.mtcs.rem.mtdome.evt_azEnabled.aget = unittest.mock.AsyncMock(
-                return_value=SimpleNamespace(faultCode=0)
-            )
-
             self.script.mtcs.rem.mtdome.evt_azEnabled.next = unittest.mock.AsyncMock(
-                return_value=SimpleNamespace(faultCode=0)
+                side_effect=[
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                ]
             )
 
             self.script.mtcs.rem.mtdome.configure_mock(
@@ -246,12 +309,33 @@ class TestRecoverFromControllerFault(
 
             self.configure_mock_tel_azimuth(az_positions)
 
-            self.script.mtcs.rem.mtdome.evt_azEnabled.aget = unittest.mock.AsyncMock(
-                return_value=SimpleNamespace(faultCode=0)
-            )
-
             self.script.mtcs.rem.mtdome.evt_azEnabled.next = unittest.mock.AsyncMock(
-                return_value=SimpleNamespace(faultCode=0)
+                side_effect=[
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                ]
             )
 
             await self.run_script()
@@ -329,12 +413,33 @@ class TestRecoverFromControllerFault(
                 [start_az for attempt in range(self.script.MAX_ATTEMPTS + 1)]
             )
 
-            self.script.mtcs.rem.mtdome.evt_azEnabled.aget = unittest.mock.AsyncMock(
-                return_value=SimpleNamespace(faultCode=0)
-            )
-
             self.script.mtcs.rem.mtdome.evt_azEnabled.next = unittest.mock.AsyncMock(
-                return_value=SimpleNamespace(faultCode=0)
+                side_effect=[
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                ]
             )
 
             with pytest.raises(AssertionError):
@@ -383,12 +488,33 @@ class TestRecoverFromControllerFault(
 
             self.configure_mock_tel_azimuth(az_positions)
 
-            self.script.mtcs.rem.mtdome.evt_azEnabled.aget = unittest.mock.AsyncMock(
-                return_value=SimpleNamespace(faultCode=0)
-            )
-
             self.script.mtcs.rem.mtdome.evt_azEnabled.next = unittest.mock.AsyncMock(
-                return_value=SimpleNamespace(faultCode=0)
+                side_effect=[
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                ]
             )
 
             with pytest.raises(AssertionError):
@@ -432,17 +558,22 @@ class TestRecoverFromControllerFault(
 
             self.configure_mock_tel_azimuth(az_positions)
 
-            self.script.mtcs.rem.mtdome.evt_azEnabled.aget = unittest.mock.AsyncMock(
-                side_effect=[
-                    SimpleNamespace(faultCode=1),
-                    SimpleNamespace(faultCode=1),
-                ]
-            )
-
             self.script.mtcs.rem.mtdome.evt_azEnabled.next = unittest.mock.AsyncMock(
                 side_effect=[
+                    SimpleNamespace(faultCode="FAULT", state=EnabledState.FAULT),
                     TimeoutError(),
-                    SimpleNamespace(faultCode=0),
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
                 ]
             )
 
