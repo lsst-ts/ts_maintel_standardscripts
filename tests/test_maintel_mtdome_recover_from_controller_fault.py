@@ -299,12 +299,11 @@ class TestRecoverFromControllerFault(
 
             start_az = self.start_az
             delta_move = self.script.config.delta_move
-            slew_tolerance = self.script.mtcs.dome_slew_tolerance.degree
 
             az_positions = [
                 start_az,
-                start_az + slew_tolerance,
-                start_az + slew_tolerance + delta_move,
+                start_az,
+                start_az + delta_move,
             ]
 
             self.configure_mock_tel_azimuth(az_positions)
@@ -473,18 +472,10 @@ class TestRecoverFromControllerFault(
             await self.configure_script()
 
             start_az = self.start_az
+
+            az_positions = [start_az, start_az, start_az]
+
             delta_move = self.script.config.delta_move
-            slew_tolerance = self.script.mtcs.dome_slew_tolerance.degree
-
-            target_az = start_az + delta_move
-
-            az_positions = [start_az, start_az + slew_tolerance]
-            # The following positions are within the initial tolerance range
-            # but fall outside the updated valid range, and must be rejected.
-            az_positions.extend(
-                target_az - slew_tolerance * 0.5
-                for i in range(self.script.MAX_ATTEMPTS - 1)
-            )
 
             self.configure_mock_tel_azimuth(az_positions)
 

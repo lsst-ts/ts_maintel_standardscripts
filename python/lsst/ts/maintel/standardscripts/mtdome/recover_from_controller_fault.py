@@ -61,6 +61,7 @@ class RecoverFromControllerFault(salobj.BaseScript):
         self.mtcs = None
         self.exitFault_subSystemIds = SubSystemId.AMCS  # Azimuth Motion Control System
         self.fast_dome_move_timeout = 30
+        self.wait_before_move = 3
 
     @classmethod
     def get_schema(cls):
@@ -80,7 +81,7 @@ class RecoverFromControllerFault(salobj.BaseScript):
                   Small amount in degrees to move the dome. The absolute value
                   must be greater than the dome slew tolerance.
                 type: number
-                default: 3.0
+                default: 2.0
             additionalProperties: false
         """
         return yaml.safe_load(schema_yaml)
@@ -156,7 +157,7 @@ class RecoverFromControllerFault(salobj.BaseScript):
 
             self.log.info("exitFault cleared error — attempting small dome slew.")
 
-            await asyncio.sleep(3)
+            await asyncio.sleep(self.wait_before_move)
 
             # Try small move to confirm dome is ready
             moved, final_az = await self.move_dome_and_check_success(target_az)
