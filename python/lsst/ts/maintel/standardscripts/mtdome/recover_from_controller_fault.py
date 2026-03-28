@@ -21,12 +21,14 @@
 
 __all__ = ["RecoverFromControllerFault"]
 
+import asyncio
+
 import numpy as np
 import yaml
 from lsst.ts import salobj
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.utils import angle_diff
-from lsst.ts.xml.enums.MTDome import SubSystemId
+from lsst.ts.xml.enums.MTDome import EnabledState, SubSystemId
 
 
 class RecoverFromControllerFault(salobj.BaseScript):
@@ -59,6 +61,7 @@ class RecoverFromControllerFault(salobj.BaseScript):
         self.mtcs = None
         self.exitFault_subSystemIds = SubSystemId.AMCS  # Azimuth Motion Control System
         self.fast_dome_move_timeout = 30
+        self.wait_before_move = 3
 
     @classmethod
     def get_schema(cls):
@@ -78,7 +81,7 @@ class RecoverFromControllerFault(salobj.BaseScript):
                   Small amount in degrees to move the dome. The absolute value
                   must be greater than the dome slew tolerance.
                 type: number
-                default: 3.0
+                default: 2.0
             additionalProperties: false
         """
         return yaml.safe_load(schema_yaml)
@@ -142,7 +145,9 @@ class RecoverFromControllerFault(salobj.BaseScript):
                 self.log.warning(f"exitFault failed on attempt {attempt}: {err}")
                 continue
 
-            cleared = await self.ensure_az_fault_cleared(timeout=self.mtcs.fast_timeout)
+            cleared = await self.ensure_az_fault_cleared(
+                timeout=self.fast_dome_move_timeout
+            )
 
             if not cleared:
                 self.log.warning(
@@ -151,6 +156,8 @@ class RecoverFromControllerFault(salobj.BaseScript):
                 continue
 
             self.log.info("exitFault cleared error — attempting small dome slew.")
+
+            await asyncio.sleep(self.wait_before_move)
 
             # Try small move to confirm dome is ready
             moved, final_az = await self.move_dome_and_check_success(target_az)
@@ -204,8 +211,8 @@ class RecoverFromControllerFault(salobj.BaseScript):
             )
         return moved, after_slew_az.positionActual
 
-    async def ensure_az_fault_cleared(self, timeout) -> bool:
-        """Return True if azEnabled faultCode becomes 0 after exitFault.
+    async def ensure_az_no_error(self, timeout: float) -> bool:
+        """Return True if azEnabled.fault reports '0=No error' within timeout.
 
         Parameters
         ----------
@@ -214,22 +221,85 @@ class RecoverFromControllerFault(salobj.BaseScript):
 
         Returns
         -------
-        cleared : `bool`
-            ``True`` if a state with ``faultCode == 0`` is observed within
-            the timeout period, otherwise ``False``.
+        `bool`
+            ``True`` if a logevent with ``fault=0=No error`` is observed within
+            the timeout period.
         """
 
-        self.mtcs.rem.mtdome.evt_azEnabled.flush()
+        try:
+            self.mtcs.rem.mtdome.evt_azEnabled.flush()
 
-        az_enabled = await self.mtcs.rem.mtdome.evt_azEnabled.aget(timeout=timeout)
+            az_enabled = await self.mtcs.rem.mtdome.evt_azEnabled.aget(
+                timeout=timeout,
+            )
+            fault = (az_enabled.faultCode or "").strip()
 
-        while az_enabled.faultCode != 0:
-            try:
+            while fault != "0=No error":
                 az_enabled = await self.mtcs.rem.mtdome.evt_azEnabled.next(
                     flush=False,
                     timeout=timeout,
                 )
-            except TimeoutError:
-                return False
+                fault = (az_enabled.faultCode or "").strip()
 
-        return True
+            return True
+
+        except TimeoutError:
+            return False
+
+    async def ensure_az_enabled(self, timeout: float) -> bool:
+        """Return True if azEnabled reaches ENABLED with empty faultCode within
+        timeout.
+
+        Parameters
+        ----------
+        timeout : `float`
+            Maximum time (seconds) to wait for a new ``evt_azEnabled`` event.
+
+        Returns
+        -------
+        `bool`
+            ``True`` if a logevent with ``state=Enabled`` is observed within
+            the timeout period.
+        """
+        try:
+            self.mtcs.rem.mtdome.evt_azEnabled.flush()
+
+            az_enabled = await self.mtcs.rem.mtdome.evt_azEnabled.aget(
+                timeout=timeout,
+            )
+            fault = (az_enabled.faultCode or "").strip()
+
+            while not (az_enabled.state == EnabledState.ENABLED and fault == ""):
+                az_enabled = await self.mtcs.rem.mtdome.evt_azEnabled.next(
+                    flush=False,
+                    timeout=timeout,
+                )
+                fault = (az_enabled.faultCode or "").strip()
+
+            return True
+
+        except TimeoutError:
+            return False
+
+    async def ensure_az_fault_cleared(self, timeout: float) -> bool:
+        """Return True if azEnabled reports no error, then reaches ENABLED
+
+        Parameters
+        ----------
+        timeout : `float`
+            Maximum time (seconds) to wait for a new ``evt_azEnabled`` event.
+
+        Returns
+        -------
+        enabled : `bool`
+            ``True`` if a logevent with ``faultCode == 0`` is observed within
+            the timeout period and then followed by a logevent with state=2.
+            Otherwise returns ``False``.
+        """
+        no_error = await self.ensure_az_no_error(timeout=timeout)
+        if not no_error:
+            return False
+
+        enabled = await self.ensure_az_enabled(timeout=timeout)
+
+        return enabled
