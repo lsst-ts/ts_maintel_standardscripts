@@ -114,6 +114,7 @@ class HomeBothAxes(salobj.BaseScript):
             self.mtcs = MTCS(
                 domain=self.domain, intended_usage=MTCSUsages.Slew, log=self.log
             )
+            self.mtcs.check.mtaos = False
             await self.mtcs.start_task
 
         if hasattr(config, "ignore_m1m3"):
