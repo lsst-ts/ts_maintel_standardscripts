@@ -107,6 +107,59 @@ class TestEnableAOSClosedLoop(
                 config=yaml.safe_dump(task_config),
             )
 
+    async def test_configure_with_vmodes_selected(self) -> None:
+        async with self.make_script():
+            config = {
+                "used_dofs": [0, 1, 2, 3, 4],
+                "truncation_index": 5,
+                "vmodes_selected": [1, 2, 3],
+            }
+
+            await self.configure_script(**config)
+
+            assert self.script.vmodes_selected == [1, 2, 3]
+            assert self.script.truncation_index == 5
+
+    async def test_configure_without_vmodes_selected(self) -> None:
+        async with self.make_script():
+            config = {
+                "used_dofs": [0, 1, 2, 3, 4],
+                "truncation_index": 5,
+            }
+
+            await self.configure_script(**config)
+
+            assert self.script.vmodes_selected is None
+
+    async def test_run_with_vmodes_selected(self) -> None:
+        async with self.make_script():
+            config = {
+                "used_dofs": [0, 1, 2, 3, 4],
+                "truncation_index": 5,
+                "zn_selected": [4, 5, 6, 7, 8],
+                "vmodes_selected": [1, 3, 5],
+            }
+            await self.configure_script(**config)
+
+            await self.run_script()
+
+            configured_dofs = np.zeros(50)
+            configured_dofs[:5] += 1
+            task_config = {
+                "truncation_index": config["truncation_index"],
+                "comp_dof_idx": {
+                    "m2HexPos": [float(val) for val in configured_dofs[:5]],
+                    "camHexPos": [float(val) for val in configured_dofs[5:10]],
+                    "M1M3Bend": [float(val) for val in configured_dofs[10:30]],
+                    "M2Bend": [float(val) for val in configured_dofs[30:]],
+                },
+                "zn_selected": config["zn_selected"],
+                "vmodes_selected": [1, 3, 5],
+            }
+            self.script.mtcs.enable_aos_closed_loop.assert_awaited_once_with(
+                config=yaml.safe_dump(task_config),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
