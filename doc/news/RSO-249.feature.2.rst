@@ -1,0 +1,1 @@
+Remove hardcoded ``zn_selected`` default from ``EnableAOSClosedLoop`` script. The default is now ``null``, so the OFC controller configuration value is used when not explicitly provided.
