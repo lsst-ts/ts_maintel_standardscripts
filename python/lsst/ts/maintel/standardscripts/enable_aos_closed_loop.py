@@ -88,14 +88,28 @@ class EnableAOSClosedLoop(BaseBlockScript):
                     default: 20
                 zn_selected:
                     description: >-
-                        Zernike coefficients to use.
-                    type: array
-                    default: []
-                    items:
-                        type: integer
-                        minimum: 0
-                        maximum: 28
-                    default: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 21, 22, 27, 28]
+                        Zernike coefficients to use. If null, use the
+                        default from the OFC controller configuration.
+                    anyOf:
+                      - type: array
+                        items:
+                            type: integer
+                            minimum: 0
+                            maximum: 28
+                      - type: "null"
+                    default: null
+                vmodes_selected:
+                    description: >-
+                        Explicit v-mode indices (1-based) to use in the state
+                        estimator. Overrides truncation_index when set.
+                        If null, use the default from the CSC configuration.
+                    anyOf:
+                      - type: array
+                        items:
+                            type: integer
+                            minimum: 1
+                      - type: "null"
+                    default: null
             additionalProperties: false
         """
         schema_dict = yaml.safe_load(schema_yaml)
@@ -114,6 +128,13 @@ class EnableAOSClosedLoop(BaseBlockScript):
 
         self.truncation_index = config.truncation_index
         self.zn_selected = config.zn_selected
+        self.vmodes_selected = config.vmodes_selected
+
+        if self.vmodes_selected is not None and self.truncation_index:
+            self.log.warning(
+                "Both vmodes_selected and truncation_index are configured. "
+                "vmodes_selected will override truncation_index."
+            )
 
         selected_dofs = config.used_dofs
         if isinstance(selected_dofs[0], str):
@@ -132,7 +153,6 @@ class EnableAOSClosedLoop(BaseBlockScript):
         """
         await self.checkpoint("Enabling AOS Closed Loop")
         config = {
-            "zn_selected": self.zn_selected,
             "truncation_index": self.truncation_index,
             "comp_dof_idx": {
                 "m2HexPos": [float(val) for val in self.used_dofs[:5]],
@@ -141,6 +161,10 @@ class EnableAOSClosedLoop(BaseBlockScript):
                 "M2Bend": [float(val) for val in self.used_dofs[30:]],
             },
         }
+        if self.zn_selected is not None:
+            config["zn_selected"] = self.zn_selected
+        if self.vmodes_selected is not None:
+            config["vmodes_selected"] = self.vmodes_selected
         config_yaml = yaml.safe_dump(config)
 
         await self.mtcs.enable_aos_closed_loop(config=config_yaml)

@@ -1,0 +1,1 @@
+Add ``vmodes_selected`` parameter to ``EnableAOSClosedLoop`` script for explicit v-mode selection in the state estimator.
