@@ -96,6 +96,10 @@ class EnableAOSClosedLoop(BaseBlockScript):
                         minimum: 0
                         maximum: 28
                     default: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 21, 22, 27, 28]
+                discard_intermediate_corrections:
+                    description: >-
+                        Configure close loop to discard intermediate corrections?
+                    type: boolean
             additionalProperties: false
         """
         schema_dict = yaml.safe_load(schema_yaml)
@@ -120,6 +124,9 @@ class EnableAOSClosedLoop(BaseBlockScript):
             selected_dofs = [getattr(DOFName, dof) for dof in selected_dofs]
         self.used_dofs = np.zeros(50)
         self.used_dofs[selected_dofs] = 1
+        self.discard_intermediate_corrections = getattr(
+            config, "discard_intermediate_corrections", None
+        )
 
         await super().configure(config=config)
 
@@ -141,6 +148,10 @@ class EnableAOSClosedLoop(BaseBlockScript):
                 "M2Bend": [float(val) for val in self.used_dofs[30:]],
             },
         }
+        if self.discard_intermediate_corrections is not None:
+            config["discard_intermediate_corrections"] = (
+                self.discard_intermediate_corrections
+            )
         config_yaml = yaml.safe_dump(config)
 
         await self.mtcs.enable_aos_closed_loop(config=config_yaml)
