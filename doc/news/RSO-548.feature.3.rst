@@ -1,0 +1,2 @@
+Updated ``maintel/ensure_onsky_readiness.py`` to assert that the M1M3 force balance system is enabled after raising the mirror, since force balance is now automatically enabled at the CSC level when the mirror is raised.
+The script raises an error if force balance is not enabled.
