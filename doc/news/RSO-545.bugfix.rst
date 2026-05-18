@@ -1,0 +1,2 @@
+Updated ``ensure_onsky_readiness.py`` to expand acceptable MTAOS closed loop states.
+The check now passes for any active state (``WAITING_IMAGE``, ``PROCESSING``, ``WAITING_APPLY``, ``APPLYING_CORRECTION``) and only fails for ``IDLE`` or ``ERROR`` states, preventing false negatives during on-sky readiness checks.
