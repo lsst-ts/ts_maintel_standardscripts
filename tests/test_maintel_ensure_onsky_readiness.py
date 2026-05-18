@@ -120,6 +120,19 @@ class TestEnsureOnSkyReadiness(
             return_value=mock.Mock(summaryState=salobj.State.ENABLED)
         )
 
+        # Mock MTM1M3TS remote
+        self.script.mtm1m3ts = mock.Mock()
+        self.script.mtm1m3ts.start_task = mock.AsyncMock()
+        self.script.mtm1m3ts.evt_summaryState = mock.Mock()
+        self.script.mtm1m3ts.evt_summaryState.aget = mock.AsyncMock(
+            return_value=mock.Mock(summaryState=salobj.State.ENABLED)
+        )
+        self.script.mtm1m3ts.evt_engineeringMode = mock.Mock()
+        self.script.mtm1m3ts.evt_engineeringMode.flush = mock.Mock()
+        self.script.mtm1m3ts.evt_engineeringMode.aget = mock.AsyncMock(
+            return_value=mock.Mock(engineeringMode=False)
+        )
+
         return (self.script,)
 
     async def test_configure_default(self):
@@ -587,3 +600,40 @@ class TestEnsureOnSkyReadiness(
             )
             self.assertIn("Current state: ERROR", aos_error_msg)
             self.assertIn("Make sure aos closed loop is enabled", aos_error_msg)
+
+    async def test_run_mtm1m3ts_not_enabled(self):
+        """Test the script fails when MTM1M3TS is not enabled."""
+        async with self.make_script():
+            await self.configure_script(slew_flags="default")
+
+            # Set MTM1M3TS to STANDBY state
+            self.script.mtm1m3ts.evt_summaryState.aget = mock.AsyncMock(
+                return_value=mock.Mock(summaryState=salobj.State.STANDBY)
+            )
+
+            with pytest.raises(AssertionError):
+                await self.run_script()
+
+    async def test_run_mtm1m3ts_in_engineering_mode(self):
+        """Test the script fails when MTM1M3TS is in engineering mode."""
+        async with self.make_script():
+            await self.configure_script(slew_flags="default")
+
+            # Set MTM1M3TS to engineering mode
+            self.script.mtm1m3ts.evt_engineeringMode.aget = mock.AsyncMock(
+                return_value=mock.Mock(engineeringMode=True)
+            )
+
+            with pytest.raises(AssertionError):
+                await self.run_script()
+
+    async def test_run_mtm1m3ts_not_in_engineering_mode(self):
+        """Test the script passes when MTM1M3TS is enabled and not in
+        engineering mode."""
+        async with self.make_script():
+            await self.configure_script(slew_flags="default")
+
+            # Verify MTM1M3TS state was checked
+            await self.run_script()
+            self.script.mtm1m3ts.evt_summaryState.aget.assert_awaited_once()
+            self.script.mtm1m3ts.evt_engineeringMode.aget.assert_awaited_once()

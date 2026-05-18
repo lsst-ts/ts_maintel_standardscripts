@@ -21,6 +21,7 @@
 
 import logging
 import unittest
+from unittest import mock
 
 from lsst.ts import salobj, standardscripts
 from lsst.ts.maintel.standardscripts.prepare_for import PrepareForOnSky
@@ -44,6 +45,19 @@ class TestPrepareForOnSky(
             domain=self.script.domain,
             log=self.script.log,
             intended_usage=LSSTCamUsages.DryTest,
+        )
+
+        # Mock MTM1M3TS remote
+        self.script.mtm1m3ts = mock.Mock()
+        self.script.mtm1m3ts.start_task = mock.AsyncMock()
+        self.script.mtm1m3ts.evt_summaryState = mock.Mock()
+        self.script.mtm1m3ts.evt_summaryState.aget = mock.AsyncMock(
+            return_value=mock.Mock(summaryState=salobj.State.ENABLED)
+        )
+        self.script.mtm1m3ts.evt_engineeringMode = mock.Mock()
+        self.script.mtm1m3ts.evt_engineeringMode.flush = mock.Mock()
+        self.script.mtm1m3ts.evt_engineeringMode.aget = mock.AsyncMock(
+            return_value=mock.Mock(engineeringMode=False)
         )
 
         return (self.script,)
@@ -136,3 +150,56 @@ class TestPrepareForOnSky(
             self.script.lsstcam.assert_all_enabled.assert_called_once()
             self.script.mtcs.prepare_for_onsky.assert_called_once()
             self.script.lsstcam.setup_instrument.assert_called_once_with(filter="i_39")
+
+    async def test_run_mtm1m3ts_not_enabled(self):
+        """Test the script fails when MTM1M3TS is not enabled."""
+        async with self.make_script():
+            await self.configure_script()
+
+            self.script.mtcs.assert_all_enabled = unittest.mock.AsyncMock()
+            self.script.lsstcam.assert_all_enabled = unittest.mock.AsyncMock()
+            self.script.mtcs.prepare_for_onsky = unittest.mock.AsyncMock()
+            self.script.lsstcam.setup_instrument = unittest.mock.AsyncMock()
+
+            # Set MTM1M3TS to STANDBY state
+            self.script.mtm1m3ts.evt_summaryState.aget = mock.AsyncMock(
+                return_value=mock.Mock(summaryState=salobj.State.STANDBY)
+            )
+
+            with self.assertRaises(AssertionError):
+                await self.run_script()
+
+    async def test_run_mtm1m3ts_in_engineering_mode(self):
+        """Test the script fails when MTM1M3TS is in engineering mode."""
+        async with self.make_script():
+            await self.configure_script()
+
+            self.script.mtcs.assert_all_enabled = unittest.mock.AsyncMock()
+            self.script.lsstcam.assert_all_enabled = unittest.mock.AsyncMock()
+            self.script.mtcs.prepare_for_onsky = unittest.mock.AsyncMock()
+            self.script.lsstcam.setup_instrument = unittest.mock.AsyncMock()
+
+            # Set MTM1M3TS to engineering mode
+            self.script.mtm1m3ts.evt_engineeringMode.aget = mock.AsyncMock(
+                return_value=mock.Mock(engineeringMode=True)
+            )
+
+            with self.assertRaises(AssertionError):
+                await self.run_script()
+
+    async def test_run_mtm1m3ts_check_passes(self):
+        """Test the script passes MTM1M3TS check when enabled and not in
+        engineering mode."""
+        async with self.make_script():
+            await self.configure_script()
+
+            self.script.mtcs.assert_all_enabled = unittest.mock.AsyncMock()
+            self.script.lsstcam.assert_all_enabled = unittest.mock.AsyncMock()
+            self.script.mtcs.prepare_for_onsky = unittest.mock.AsyncMock()
+            self.script.lsstcam.setup_instrument = unittest.mock.AsyncMock()
+
+            await self.run_script()
+
+            # Verify MTM1M3TS state was checked
+            self.script.mtm1m3ts.evt_summaryState.aget.assert_awaited_once()
+            self.script.mtm1m3ts.evt_engineeringMode.aget.assert_awaited_once()

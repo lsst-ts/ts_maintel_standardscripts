@@ -50,6 +50,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
     12. Ensure the Dome is unparked.
     13. Ensure Dome Following Mode is enabled.
     14. Assert that the AOS (Active Optics System) Closed Loop is enabled.
+    15. Assert that the MTM1M3TS is not in engineering mode.
 
     At each step, the script logs progress, checks system states, and takes
     corrective actions or raises warnings/errors as appropriate. If dome and
@@ -69,6 +70,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         self.mtcs = None
         self.lsstcam = None
         self.ocps = None
+        self.mtm1m3ts = None
         self.assertion_errors = []
 
         self.tel_raise_m1m3_min_el = 20.0
@@ -106,6 +108,15 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             await self.ocps.start_task
         else:
             self.log.debug("OCPS already initialized.")
+
+    async def configure_mtm1m3ts(self):
+        """Configure MTM1M3TS remote if not already configured."""
+        if self.mtm1m3ts is None:
+            self.log.debug("Creating MTM1M3TS remote instance.")
+            self.mtm1m3ts = salobj.Remote(self.domain, "MTM1M3TS")
+            await self.mtm1m3ts.start_task
+        else:
+            self.log.debug("MTM1M3TS already initialized.")
 
     @classmethod
     def get_schema(cls):
@@ -169,6 +180,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         await self.configure_tcs()
         await self.configure_camera()
         await self.configure_ocps()
+        await self.configure_mtm1m3ts()
 
     def set_metadata(self, metadata):
         metadata.duration = 300
@@ -559,6 +571,45 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             self.log.warning(f"AOS closed loop assertion failed: {e}")
             self.assertion_errors.append(e)
 
+    async def assert_mtm1m3ts_not_in_engineering_mode(self) -> None:
+        """Assert that MTM1M3TS is not in engineering mode.
+
+        This method checks whether the MTM1M3TS CSC is enabled and not in
+        engineering mode. If the CSC is not enabled or is in engineering mode,
+        the script will raise an error.
+
+        Raises
+        ------
+        RuntimeError
+            If MTM1M3TS is not enabled or is in engineering mode.
+        """
+        self.log.info("Assert that MTM1M3TS is not in engineering mode.")
+
+        summary_state = (
+            await self.mtm1m3ts.evt_summaryState.aget(timeout=self.mtcs.fast_timeout)
+        ).summaryState
+
+        current_state = salobj.State(summary_state)
+
+        if current_state != salobj.State.ENABLED:
+            raise RuntimeError(
+                f"MTM1M3TS is not enabled (current state: {current_state!r}).\n"
+                "Please check the MTM1M3TS CSC and enable it before proceeding."
+            )
+
+        self.mtm1m3ts.evt_engineeringMode.flush()
+        engineering_mode_evt = await self.mtm1m3ts.evt_engineeringMode.aget(
+            timeout=self.mtcs.fast_timeout
+        )
+
+        if engineering_mode_evt.engineeringMode:
+            raise RuntimeError(
+                "MTM1M3TS is in engineering mode.\n"
+                "This prevents EAS/PID from commanding the glycol valve position.\n"
+                "Please disable engineering mode on MTM1M3TS before on-sky operations.\n"
+                "Check the troubleshooting documentation for more information."
+            )
+
     async def run(self):
         """Run the script to ensure on-sky readiness."""
 
@@ -606,6 +657,9 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
 
         await self.checkpoint("Assert that AOS Closed Loop is enabled.")
         await self.assert_aos_closed_loop_enabled()
+
+        await self.checkpoint("Assert that MTM1M3TS is not in engineering mode.")
+        await self.assert_mtm1m3ts_not_in_engineering_mode()
 
         if self.assertion_errors:
             error_messages = "\n\n".join(str(e) for e in self.assertion_errors)
