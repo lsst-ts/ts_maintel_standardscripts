@@ -324,7 +324,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
             except asyncio.TimeoutError:
                 self.log.warning(
                     "No new closed loop state event. Continuing. "
-                    "Last known state: {ClosedLoopState(mtaos_closed_loop_state.state).name}."
+                    f"Last known state: {ClosedLoopState(mtaos_closed_loop_state.state).name}."
                 )
                 return
 
