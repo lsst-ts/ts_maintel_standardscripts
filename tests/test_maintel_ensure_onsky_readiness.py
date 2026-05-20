@@ -463,13 +463,42 @@ class TestEnsureOnSkyReadiness(
                 await self.run_script()
 
     async def test_run_aos_closed_loop_states(self):
-        """Test edge cases for AOS closed loop states."""
+        """Test edge cases for AOS closed loop states.
+
+        Valid enabled states: WAITING_IMAGE, PROCESSING, WAITING_APPLY,
+        APPLYING_CORRECTION.
+        Invalid states: IDLE, ERROR.
+        """
 
         # WAITING_IMAGE: should pass without exception
         async with self.make_script():
             await self.configure_script()
             self.script.mtcs.rem.mtaos.evt_closedLoopState.aget = mock.AsyncMock(
                 return_value=mock.Mock(state=MTAOS.ClosedLoopState.WAITING_IMAGE)
+            )
+            await self.run_script()
+
+        # PROCESSING: should pass without exception
+        async with self.make_script():
+            await self.configure_script(slew_flags="default")
+            self.script.mtcs.rem.mtaos.evt_closedLoopState.aget = mock.AsyncMock(
+                return_value=mock.Mock(state=MTAOS.ClosedLoopState.PROCESSING)
+            )
+            await self.run_script()
+
+        # WAITING_APPLY: should pass without exception
+        async with self.make_script():
+            await self.configure_script(slew_flags="default")
+            self.script.mtcs.rem.mtaos.evt_closedLoopState.aget = mock.AsyncMock(
+                return_value=mock.Mock(state=MTAOS.ClosedLoopState.WAITING_APPLY)
+            )
+            await self.run_script()
+
+        # APPLYING_CORRECTION: should pass without exception
+        async with self.make_script():
+            await self.configure_script(slew_flags="default")
+            self.script.mtcs.rem.mtaos.evt_closedLoopState.aget = mock.AsyncMock(
+                return_value=mock.Mock(state=MTAOS.ClosedLoopState.APPLYING_CORRECTION)
             )
             await self.run_script()
 
@@ -480,7 +509,7 @@ class TestEnsureOnSkyReadiness(
                 return_value=mock.Mock(state=MTAOS.ClosedLoopState.ERROR)
             )
             with self.assertRaises(
-                AssertionError, msg="AOS Closed Loop is not in WAITING_IMAGE state"
+                AssertionError, msg="AOS Closed Loop is not enabled"
             ):
                 await self.run_script()
 
@@ -491,7 +520,7 @@ class TestEnsureOnSkyReadiness(
                 return_value=mock.Mock(state=MTAOS.ClosedLoopState.IDLE)
             )
             with self.assertRaises(
-                AssertionError, msg="AOS Closed Loop is not in WAITING_IMAGE state"
+                AssertionError, msg="AOS Closed Loop is not enabled"
             ):
                 await self.run_script()
 
@@ -545,11 +574,12 @@ class TestEnsureOnSkyReadiness(
 
             # Check AOS error message
             aos_error_msg = str(self.script.assertion_errors[1])
-            self.assertIn(
-                "AOS Closed Loop is not in WAITING_IMAGE state", aos_error_msg
-            )
+            self.assertIn("AOS Closed Loop is not enabled", aos_error_msg)
             self.assertIn("Current state: ERROR", aos_error_msg)
-            self.assertIn("Make sure aos closed loop is enabled", aos_error_msg)
+            self.assertIn(
+                "Make sure AOS closed loop is enabled before on-sky operations",
+                aos_error_msg,
+            )
 
     async def test_run_mtm1m3ts_not_enabled(self):
         """Test the script fails when MTM1M3TS is not enabled."""
