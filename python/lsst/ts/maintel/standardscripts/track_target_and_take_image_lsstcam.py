@@ -313,6 +313,16 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
             ClosedLoopState.ERROR,
         }:
             try:
+                if mtaos_closed_loop_state.state == ClosedLoopState.WAITING_APPLY:
+                    self.log.info(
+                        "MTAOS waiting to apply correction; issuing correction..."
+                    )
+                    async with self.mtcs.m1m3_booster_valve():
+                        await self.mtcs.handle_aos_close_loop()
+                        await self.mtcs.wait_for_inposition(
+                            timeout=self.mtcs.long_timeout, wait_settle=False
+                        )
+
                 mtaos_closed_loop_state = (
                     await self.mtcs.rem.mtaos.evt_closedLoopState.next(
                         flush=False, timeout=self.mtcs.long_timeout
