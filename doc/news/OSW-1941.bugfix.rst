@@ -1,1 +1,0 @@
-Updated laser_tracker/align.py to add intended usage and limit the ammount of resources allocated by the script.

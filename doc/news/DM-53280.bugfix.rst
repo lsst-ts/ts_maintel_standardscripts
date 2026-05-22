@@ -1,1 +1,0 @@
-Add base schema required field inheritance to derived scripts

@@ -1,1 +1,0 @@
-Updated the ``ensure_onsky_readiness.py`` script to ensure the ``OCPS:101`` CSC is enabled as part of the on-sky readiness checks.

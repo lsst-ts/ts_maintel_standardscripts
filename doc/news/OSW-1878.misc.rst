@@ -1,1 +1,0 @@
-Improved ``ensure_onsky_readiness`` script to align MTMount homing logic with the ``home_both_axes.py`` pattern: increased homing timeout from ~30s to 300s, wrapped homing command with the M1M3 booster valve context manager, and reordered steps so the M1M3 force balance system is enabled before homing.

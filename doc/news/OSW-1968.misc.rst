@@ -1,1 +1,0 @@
-In mtdome/recover_from_controller_fault.py, update timeout used to wait for in_position event and capture slew_dome faults to prevent script from failing before additional recovery attempts.
