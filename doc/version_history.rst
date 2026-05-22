@@ -8,6 +8,43 @@ Version History
 
 .. towncrier release notes start
 
+v0.7.0 (2026-05-22)
+===================
+
+New Features
+------------
+
+- Add a ``maintel/prepare_for/flat.py`` script to prepare Simonyi for in-dome flat-field calibrations. (`DM-51803 <https://rubinobs.atlassian.net//browse/DM-51803>`_)
+- Added a set_roi parameter to the take_image_lsstcam.py script, providing the option to skip the guider ROI setting phase when it is not required for a specific observation. (`LSSTCAM-155 <https://rubinobs.atlassian.net//browse/LSSTCAM-155>`_)
+- Updated the ``track_target_and_take_image_lsstcam.py`` script to enable TCS synchronization when there is a filter change. (`OSW-1705 <https://rubinobs.atlassian.net//browse/OSW-1705>`_)
+- Update ``take_image_lsstcam`` script to reset guider roi when ``set_roi`` is False. (`OSW-1709 <https://rubinobs.atlassian.net//browse/OSW-1709>`_)
+- The ``prepare_for_onsky`` script now configures the camera filter during preparation to support the on-sky initial alignment optimization effort described in `RSO-76 <https://rubinobs.atlassian.net/browse/RSO-76>`_. (`OSW-1719 <https://rubinobs.atlassian.net//browse/OSW-1719>`_)
+- Update script ``point_azel.py`` to raise an exception if the MTM1M3 component is ignored. (`OSW-1901 <https://rubinobs.atlassian.net//browse/OSW-1901>`_)
+- In mtdome/recover_from_controller_fault.py, add feature to verify azEnabled log_event after sending exitFault cmd. (`OSW-1968 <https://rubinobs.atlassian.net//browse/OSW-1968>`_)
+- Updated the ``ensure_onsky_readiness.py`` script to ensure the ``OCPS:101`` CSC is enabled as part of the on-sky readiness checks. (`OSW-1970 <https://rubinobs.atlassian.net//browse/OSW-1970>`_)
+- Updated the 'enable_aos_closed_loop.py' script with a new parameter to toggle the discarding of intermediate MTAOS corrections. (`OSW-2094 <https://rubinobs.atlassian.net//browse/OSW-2094>`_)
+
+
+Bug Fixes
+---------
+
+- Add base schema required field inheritance to derived scripts (`DM-53280 <https://rubinobs.atlassian.net//browse/DM-53280>`_)
+- Update documentation build configuration for documenteer 1.0+. (`DM-53280.2 <https://rubinobs.atlassian.net//browse/DM-53280.2>`_)
+- Updated laser_tracker/align.py to add intended usage and limit the ammount of resources allocated by the script. (`OSW-1941 <https://rubinobs.atlassian.net//browse/OSW-1941>`_)
+- Updated ``take_image_lsstcam.py`` to move the guider ROI selection process to the run stage of the script execution, instead of the configuration stage. (`RSO-40 <https://rubinobs.atlassian.net//browse/RSO-40>`_)
+
+
+Other Changes and Additions
+---------------------------
+
+- Fixed the test_configure_ignore unit test for the take_image_lsstcam script to maintain test suite reliability. (`LSSTCAM-155 <https://rubinobs.atlassian.net//browse/LSSTCAM-155>`_)
+- Improved ``ensure_onsky_readiness`` script to align MTMount homing logic with the ``home_both_axes.py`` pattern: increased homing timeout from ~30s to 300s, wrapped homing command with the M1M3 booster valve context manager, and reordered steps so the M1M3 force balance system is enabled before homing. (`OSW-1878 <https://rubinobs.atlassian.net//browse/OSW-1878>`_)
+- In mtdome/recover_from_controller_fault.py, reduce default delta_move from 3 deg to 2 deg. (`OSW-1968 <https://rubinobs.atlassian.net//browse/OSW-1968>`_)
+- In mtdome/recover_from_controller_fault.py, update timeout used to wait for in_position event and capture slew_dome faults to prevent script from failing before additional recovery attempts. (`OSW-1968 <https://rubinobs.atlassian.net//browse/OSW-1968>`_)
+- In mtdome/recover_from_controller_fault.py, refactor method to check that the fault is cleared and check EnabledState. (`OSW-1968 <https://rubinobs.atlassian.net//browse/OSW-1968>`_)
+- Updated the 'home_both_axes.py' script to ignore mtaos during execution. (`OSW-2094 <https://rubinobs.atlassian.net//browse/OSW-2094>`_)
+
+
 v0.6.1 (2026-01-13)
 ===================
 

@@ -1,1 +1,0 @@
-In mtdome/recover_from_controller_fault.py, reduce default delta_move from 3 deg to 2 deg.

@@ -1,1 +1,0 @@
-Updated the 'home_both_axes.py' script to ignore mtaos during execution.
