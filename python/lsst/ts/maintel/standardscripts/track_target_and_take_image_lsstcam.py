@@ -210,6 +210,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
             self.log.debug(
                 f"Filter change required: {current_filter} -> {self.config.band_filter}"
             )
+            self.lsstcam.ready_to_take_data = self.mtcs.ready_to_take_data
             await self._handle_slew_and_change_filter()
         else:
             self.log.debug(

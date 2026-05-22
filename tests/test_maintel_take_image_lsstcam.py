@@ -23,7 +23,7 @@ import unittest
 import unittest.mock as mock
 
 import pytest
-from lsst.ts import salobj, standardscripts
+from lsst.ts import salobj, standardscripts, utils
 from lsst.ts.maintel.standardscripts import TakeImageLSSTCam
 
 
@@ -45,6 +45,9 @@ class TestTakeImageLSSTCam(
         self.script._lsstcam.filter_change_timeout = 0.0
         self.script._lsstcam.read_out_time = 0.0
         self.script._lsstcam.shutter_time = 0.0
+        self.script._lsstcam.take_imgtype = mock.AsyncMock(return_value=[[1]])
+
+        self.script.camera.reset_guider_roi = mock.MagicMock()
 
         return (self.script,)
 
@@ -140,23 +143,94 @@ class TestTakeImageLSSTCam(
         async with self.make_script():
             self.script.mtcs.disable_checks_for_components = mock.MagicMock()
 
-            config = type(
-                "Config",
-                (),
-                {
-                    "ignore": ["mtmount", "mtptg"],
-                    "nimages": 1,
-                    "exp_times": [1.0],
-                    "image_type": "OBJECT",
-                    "filter": None,
-                    "roi_spec": None,
-                },
-            )()
-            await self.script.configure(config)
+            config = {
+                "ignore": ["mtmount", "mtptg"],
+                "nimages": 1,
+                "exp_times": [1.0],
+                "image_type": "OBJECT",
+                "filter": None,
+            }
+            await self.configure_script(**config)
 
             self.script.mtcs.disable_checks_for_components.assert_any_call(
                 components=["mtmount", "mtptg"]
             )
+
+    async def test_configure_set_roi_false(self):
+        """Test that setting set_roi to False skips ROI specification."""
+        async with self.make_script():
+            # Mock get_guider_roi to verify it's not called
+            self.script.get_guider_roi = mock.AsyncMock()
+            self.script._lsstcam.setup_instrument = mock.AsyncMock(
+                return_value=utils.make_done_future()
+            )
+            self.script.assert_feasibility = mock.AsyncMock()
+
+            config = {
+                "nimages": 1,
+                "exp_times": [1.0],
+                "image_type": "OBJECT",
+                "filter": None,
+                "set_roi": False,
+            }
+            await self.configure_script(**config)
+
+            # Verify that roi_spec is None when set_roi is False
+            assert self.script.roi_spec is None
+            await self.run_script()
+            # Verify that get_guider_roi was not called
+            self.script.get_guider_roi.assert_not_awaited()
+            self.script.camera.reset_guider_roi.assert_called_once()
+
+    async def test_configure_set_roi_true(self):
+        """Test that setting set_roi to True attempts to get ROI
+        specification."""
+        async with self.make_script():
+            # Mock get_guider_roi to return None (simulating failure)
+            self.script.get_guider_roi = mock.AsyncMock(return_value=None)
+            self.script._lsstcam.setup_instrument = mock.AsyncMock(
+                return_value=utils.make_done_future()
+            )
+            self.script.assert_feasibility = mock.AsyncMock()
+
+            config = {
+                "nimages": 1,
+                "exp_times": [1.0],
+                "image_type": "OBJECT",
+                "filter": None,
+                "set_roi": True,
+            }
+            await self.configure_script(**config)
+
+            # Verify that get_guider_roi was not called during
+            # the configure stage.
+            self.script.get_guider_roi.assert_not_awaited()
+            await self.run_script()
+            # Verify it was called during the run stage
+            self.script.get_guider_roi.assert_awaited_once()
+            self.script.camera.reset_guider_roi.assert_not_called()
+
+    def test_schema_inherits_base_required(self):
+        """Test that the schema inherits 'required' fields from the base class.
+
+        BaseTakeImage requires 'image_type'. This test verifies that the
+        derived class schema includes this requirement.
+        """
+        # BaseTakeImage.get_schema() cannot be called directly because
+        # get_available_imgtypes() is abstract. Instead, we verify that
+        # the derived schema contains the known base required fields.
+        base_required = {"image_type"}  # Known required field from BaseTakeImage
+
+        derived_schema = TakeImageLSSTCam.get_schema()
+
+        self.assertIn("required", derived_schema)
+
+        derived_required = set(derived_schema["required"])
+        self.assertTrue(
+            base_required.issubset(derived_required),
+            f"Derived schema is missing base required fields: "
+            f"{base_required - derived_required}",
+        )
 
 
 if __name__ == "__main__":

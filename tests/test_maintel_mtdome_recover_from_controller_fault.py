@@ -21,6 +21,7 @@
 
 import contextlib
 import unittest
+from types import SimpleNamespace
 
 import pytest
 from lsst.ts import salobj, standardscripts
@@ -112,6 +113,35 @@ class TestRecoverFromControllerFault(
                 ]
             )
 
+            self.script.mtcs.rem.mtdome.evt_azEnabled.next = unittest.mock.AsyncMock(
+                side_effect=[
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                ]
+            )
+
             await self.run_script()
 
             self.script.mtcs.check_dome_following.assert_awaited_once()
@@ -119,7 +149,9 @@ class TestRecoverFromControllerFault(
             self.script.mtcs.rem.mtdome.cmd_exitFault.set_start.assert_awaited_once_with(
                 subSystemIds=SubSystemId.AMCS, timeout=self.script.mtcs.fast_timeout
             )
-            self.script.mtcs.slew_dome_to.assert_awaited_once_with(az=target_az)
+            self.script.mtcs.slew_dome_to.assert_awaited_once_with(
+                az=target_az, timeout=self.script.fast_dome_move_timeout
+            )
             self.script.mtcs.enable_dome_following.assert_awaited_once()
 
     async def test_run_success_dome_following_disabled(self):
@@ -139,6 +171,35 @@ class TestRecoverFromControllerFault(
                 ]
             )
 
+            self.script.mtcs.rem.mtdome.evt_azEnabled.next = unittest.mock.AsyncMock(
+                side_effect=[
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                ]
+            )
+
             self.script.mtcs.check_dome_following.configure_mock(return_value=False)
 
             await self.run_script()
@@ -148,7 +209,9 @@ class TestRecoverFromControllerFault(
             self.script.mtcs.rem.mtdome.cmd_exitFault.set_start.assert_awaited_once_with(
                 subSystemIds=SubSystemId.AMCS, timeout=self.script.mtcs.fast_timeout
             )
-            self.script.mtcs.slew_dome_to.assert_awaited_once_with(az=target_az)
+            self.script.mtcs.slew_dome_to.assert_awaited_once_with(
+                az=target_az, timeout=self.script.fast_dome_move_timeout
+            )
             self.script.mtcs.enable_dome_following.assert_awaited_once()
 
     async def test_run_success_after_failing_exitFault(self):
@@ -165,6 +228,35 @@ class TestRecoverFromControllerFault(
             ]
 
             self.configure_mock_tel_azimuth(az_positions)
+
+            self.script.mtcs.rem.mtdome.evt_azEnabled.next = unittest.mock.AsyncMock(
+                side_effect=[
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                ]
+            )
 
             self.script.mtcs.rem.mtdome.configure_mock(
                 **{
@@ -191,7 +283,10 @@ class TestRecoverFromControllerFault(
             )
             # Check slew dome attempts
             expected_slew_dome_to_calls = [
-                unittest.mock.call(az=offset_az + delta_move)
+                unittest.mock.call(
+                    az=offset_az + delta_move,
+                    timeout=self.script.fast_dome_move_timeout,
+                )
                 for offset_az in az_positions[:-1]
             ]
             self.script.mtcs.slew_dome_to.assert_has_awaits(expected_slew_dome_to_calls)
@@ -204,15 +299,43 @@ class TestRecoverFromControllerFault(
 
             start_az = self.start_az
             delta_move = self.script.config.delta_move
-            slew_tolerance = self.script.mtcs.dome_slew_tolerance.degree
 
             az_positions = [
                 start_az,
-                start_az + slew_tolerance,
-                start_az + slew_tolerance + delta_move,
+                start_az,
+                start_az + delta_move,
             ]
 
             self.configure_mock_tel_azimuth(az_positions)
+
+            self.script.mtcs.rem.mtdome.evt_azEnabled.next = unittest.mock.AsyncMock(
+                side_effect=[
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                ]
+            )
 
             await self.run_script()
 
@@ -230,7 +353,10 @@ class TestRecoverFromControllerFault(
             )
             # Check slew dome attempts
             expected_slew_dome_to_calls = [
-                unittest.mock.call(az=offset_az + delta_move)
+                unittest.mock.call(
+                    az=offset_az + delta_move,
+                    timeout=self.script.fast_dome_move_timeout,
+                )
                 for offset_az in az_positions[:-1]
             ]
             self.script.mtcs.slew_dome_to.assert_has_awaits(expected_slew_dome_to_calls)
@@ -286,6 +412,35 @@ class TestRecoverFromControllerFault(
                 [start_az for attempt in range(self.script.MAX_ATTEMPTS + 1)]
             )
 
+            self.script.mtcs.rem.mtdome.evt_azEnabled.next = unittest.mock.AsyncMock(
+                side_effect=[
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                ]
+            )
+
             with pytest.raises(AssertionError):
                 await self.run_script()
 
@@ -303,7 +458,9 @@ class TestRecoverFromControllerFault(
             )
             # Check slew dome attempts
             expected_slew_dome_to_calls = [
-                unittest.mock.call(az=target_az)
+                unittest.mock.call(
+                    az=target_az, timeout=self.script.fast_dome_move_timeout
+                )
                 for i in range(self.script.MAX_ATTEMPTS)
             ]
             self.script.mtcs.slew_dome_to.assert_has_awaits(expected_slew_dome_to_calls)
@@ -315,20 +472,41 @@ class TestRecoverFromControllerFault(
             await self.configure_script()
 
             start_az = self.start_az
+
+            az_positions = [start_az, start_az, start_az]
+
             delta_move = self.script.config.delta_move
-            slew_tolerance = self.script.mtcs.dome_slew_tolerance.degree
-
-            target_az = start_az + delta_move
-
-            az_positions = [start_az, start_az + slew_tolerance]
-            # The following positions are within the initial tolerance range
-            # but fall outside the updated valid range, and must be rejected.
-            az_positions.extend(
-                target_az - slew_tolerance * 0.5
-                for i in range(self.script.MAX_ATTEMPTS - 1)
-            )
 
             self.configure_mock_tel_azimuth(az_positions)
+
+            self.script.mtcs.rem.mtdome.evt_azEnabled.next = unittest.mock.AsyncMock(
+                side_effect=[
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                ]
+            )
 
             with pytest.raises(AssertionError):
                 await self.run_script()
@@ -347,8 +525,69 @@ class TestRecoverFromControllerFault(
             )
             # Check slew dome attempts
             expected_slew_dome_to_calls = [
-                unittest.mock.call(az=offset_az + delta_move)
+                unittest.mock.call(
+                    az=offset_az + delta_move,
+                    timeout=self.script.fast_dome_move_timeout,
+                )
                 for offset_az in az_positions[:-1]
+            ]
+            self.script.mtcs.slew_dome_to.assert_has_awaits(expected_slew_dome_to_calls)
+            # Check dome following
+            self.script.mtcs.enable_dome_following.assert_awaited_once()
+
+    async def test_success_after_fail_to_clear_fault(self):
+        async with self.make_failing_dry_script():
+            await self.configure_script()
+
+            start_az = self.start_az
+            delta_move = self.script.config.delta_move
+
+            az_positions = [
+                start_az,
+                start_az + delta_move,
+            ]
+
+            self.configure_mock_tel_azimuth(az_positions)
+
+            self.script.mtcs.rem.mtdome.evt_azEnabled.next = unittest.mock.AsyncMock(
+                side_effect=[
+                    SimpleNamespace(faultCode="FAULT", state=EnabledState.FAULT),
+                    TimeoutError(),
+                    SimpleNamespace(
+                        faultCode="Fault",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="0=No error",
+                        state=EnabledState.FAULT,
+                    ),
+                    SimpleNamespace(
+                        faultCode="",
+                        state=EnabledState.ENABLED,
+                    ),
+                ]
+            )
+
+            await self.run_script()
+
+            self.script.mtcs.check_dome_following.assert_awaited_once()
+            self.script.mtcs.disable_dome_following.assert_awaited_once()
+            # Check exitFault command attempts
+            expected_exitFalut_calls = [
+                unittest.mock.call(
+                    subSystemIds=SubSystemId.AMCS, timeout=self.script.mtcs.fast_timeout
+                )
+                for i in range(self.script.MAX_ATTEMPTS)
+            ]
+            self.script.mtcs.rem.mtdome.cmd_exitFault.set_start.assert_has_awaits(
+                expected_exitFalut_calls
+            )
+            # Check slew dome attempts
+            expected_slew_dome_to_calls = [
+                unittest.mock.call(
+                    az=az_positions[-1],
+                    timeout=self.script.fast_dome_move_timeout,
+                )
             ]
             self.script.mtcs.slew_dome_to.assert_has_awaits(expected_slew_dome_to_calls)
             # Check dome following

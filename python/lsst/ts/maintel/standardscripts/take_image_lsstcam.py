@@ -91,6 +91,10 @@ class TakeImageLSSTCam(BaseTakeImage):
                     minimum: 1
                   - type: "null"
                 default: null
+              set_roi:
+                description: Whether to set the ROI specification. If false, roi_spec is ignored.
+                type: boolean
+                default: true
               roi_spec:
                 description: Definition of the ROI Specification.
                 type: object
@@ -158,6 +162,11 @@ class TakeImageLSSTCam(BaseTakeImage):
 
         base_schema_dict = super(TakeImageLSSTCam, cls).get_schema()
 
+        if "required" in base_schema_dict:
+            schema_dict["required"] = list(
+                set(schema_dict.get("required", [])) | set(base_schema_dict["required"])
+            )
+
         for prop in base_schema_dict["properties"]:
             schema_dict["properties"][prop] = base_schema_dict["properties"][prop]
 
@@ -182,17 +191,6 @@ class TakeImageLSSTCam(BaseTakeImage):
 
         if hasattr(config, "ignore") and config.ignore:
             self.mtcs.disable_checks_for_components(components=config.ignore)
-
-        if (roi_spec := getattr(self.config, "roi_spec", None)) is not None:
-            self.roi_spec = ROISpec.parse_obj(roi_spec)
-        else:
-            try:
-                self.roi_spec = await self.get_guider_roi()
-            except Exception as e:
-                self.log.info(
-                    f"Failed to get guider ROI, ignoring. Feature still under development. {e}",
-                    exc_info=True,
-                )
 
         await super().configure(config=config)
 
@@ -282,6 +280,25 @@ class TakeImageLSSTCam(BaseTakeImage):
                 )
 
     async def run(self):
+
+        set_roi = self.config.set_roi
+        self.log.info(f"{set_roi=}.")
+
+        if set_roi:
+            if (roi_spec := getattr(self.config, "roi_spec", None)) is not None:
+                self.roi_spec = ROISpec.parse_obj(roi_spec)
+            else:
+                try:
+                    self.roi_spec = await self.get_guider_roi()
+                except Exception as e:
+                    self.log.info(
+                        f"Failed to get guider ROI, ignoring. Feature still under development. {e}",
+                        exc_info=True,
+                    )
+        else:
+            self.roi_spec = None
+            self.camera.reset_guider_roi()
+
         if self.roi_spec is not None:
             await self.camera.init_guider(roi_spec=self.roi_spec)
 

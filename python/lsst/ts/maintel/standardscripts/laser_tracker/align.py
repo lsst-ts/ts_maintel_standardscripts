@@ -28,7 +28,7 @@ from functools import partial
 import numpy as np
 import yaml
 from lsst.ts.observatory.control import RemoteGroup
-from lsst.ts.observatory.control.maintel.mtcs import MTCS
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
 from lsst.ts.xml.enums.LaserTracker import LaserStatus
 
@@ -140,7 +140,11 @@ class Align(BaseBlockScript):
             self.mtcs = MTCS(
                 domain=self.domain,
                 log=self.log,
+                intended_usage=MTCSUsages.Slew
+                | MTCSUsages.StateTransition
+                | MTCSUsages.AOS,
             )
+            await self.mtcs.start_task
         self.max_iter = config.max_iter
         self.target = getattr(AlignComponent, config.target)
         self.tolerance_linear = config.tolerance_linear

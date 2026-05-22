@@ -20,4 +20,5 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 from .align import *
+from .flat import *
 from .onsky import *

@@ -254,6 +254,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
 
             self.script.lsstcam.set_init_guider.assert_awaited_once()
             self.script.lsstcam.take_object.assert_has_awaits(lsstcam_take_object_calls)
+            assert self.script.lsstcam.ready_to_take_data is None
             self.script.mtcs.check_tracking.assert_awaited_once()
 
             self.script.mtcs.stop_tracking.assert_not_awaited()
@@ -485,6 +486,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
 
             self.script.lsstcam.set_init_guider.assert_awaited_once()
             self.script.lsstcam.take_object.assert_has_awaits(lsstcam_take_object_calls)
+            self.script.lsstcam.ready_to_take_data.assert_awaited()
             self.script.mtcs.check_tracking.assert_awaited_once()
 
             self.script.mtcs.stop_tracking.assert_not_awaited()
@@ -653,6 +655,7 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
         )
         self.script.mtcs.stop_tracking = unittest.mock.AsyncMock()
         self.script.mtcs.check_tracking = unittest.mock.AsyncMock()
+        self.script.mtcs.ready_to_take_data = unittest.mock.AsyncMock()
         self.script.mtcs.rem = types.SimpleNamespace(
             mtrotator=unittest.mock.AsyncMock(), mtaos=unittest.mock.AsyncMock()
         )
@@ -729,6 +732,8 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
             f"exptime: {exptime}s, group_id: {group_id}, reason: {reason}, program: {program}, note: {note}"
         )
         await asyncio.sleep(exptime)
+        if self.script.lsstcam.ready_to_take_data is not None:
+            await self.script.lsstcam.ready_to_take_data()
         self.visit_id += 1
         self.aos_closed_loop_tasks.append(
             asyncio.create_task(self.emulate_aos_closed_loop(self.visit_id))

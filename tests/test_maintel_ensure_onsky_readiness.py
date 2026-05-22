@@ -23,7 +23,7 @@ import unittest
 from unittest import mock
 
 import pytest
-from lsst.ts import standardscripts
+from lsst.ts import salobj, standardscripts
 from lsst.ts.maintel.standardscripts import EnsureOnSkyReadiness
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
@@ -64,6 +64,11 @@ class TestEnsureOnSkyReadiness(
         self.script.mtcs.enable_ccw_following = mock.AsyncMock()
         self.script.mtcs.unpark_dome = mock.AsyncMock()
         self.script.mtcs.enable_dome_following = mock.AsyncMock()
+
+        # Mock m1m3_booster_valve as an async context manager
+        self.script.mtcs.m1m3_booster_valve = mock.MagicMock(
+            return_value=mock.AsyncMock()
+        )
 
         # Mock remotes/events
         self.script.mtcs.rem = mock.Mock()
@@ -106,6 +111,15 @@ class TestEnsureOnSkyReadiness(
         self.script.mtcs.rem.mtaos.evt_closedLoopState.aget = mock.AsyncMock(
             return_value=mock.Mock(state=MTAOS.ClosedLoopState.WAITING_IMAGE)
         )
+
+        # Mock OCPS remote
+        self.script.ocps = mock.Mock()
+        self.script.ocps.start_task = mock.AsyncMock()
+        self.script.ocps.evt_summaryState = mock.Mock()
+        self.script.ocps.evt_summaryState.aget = mock.AsyncMock(
+            return_value=mock.Mock(summaryState=salobj.State.ENABLED)
+        )
+
         return (self.script,)
 
     async def test_configure_default(self):
@@ -170,6 +184,44 @@ class TestEnsureOnSkyReadiness(
             )
             self.script.mtcs.unpark_dome.assert_awaited_once()
             self.script.mtcs.enable_dome_following.assert_awaited_once()
+            # Verify OCPS state was checked
+            self.script.ocps.evt_summaryState.aget.assert_awaited_once()
+
+    async def test_run_ensure_ocps_enabled_when_not_enabled(self):
+        """Test that the script enables OCPS:101 if it is not enabled."""
+        async with self.make_script():
+            await self.configure_script(slew_flags="default")
+
+            # Set OCPS to STANDBY state
+            self.script.ocps.evt_summaryState.aget = mock.AsyncMock(
+                return_value=mock.Mock(summaryState=salobj.State.STANDBY)
+            )
+
+            with mock.patch(
+                "lsst.ts.salobj.set_summary_state", new_callable=mock.AsyncMock
+            ) as mock_set_state:
+                await self.run_script()
+                mock_set_state.assert_awaited_once_with(
+                    self.script.ocps, salobj.State.ENABLED
+                )
+
+    async def test_run_ensure_ocps_enabled_failure(self):
+        """Test that the script raises if OCPS:101 cannot be enabled."""
+        async with self.make_script():
+            await self.configure_script(slew_flags="default")
+
+            # Set OCPS to STANDBY state
+            self.script.ocps.evt_summaryState.aget = mock.AsyncMock(
+                return_value=mock.Mock(summaryState=salobj.State.STANDBY)
+            )
+
+            with mock.patch(
+                "lsst.ts.salobj.set_summary_state",
+                new_callable=mock.AsyncMock,
+                side_effect=RuntimeError("Failed to enable OCPS:101"),
+            ):
+                with pytest.raises(AssertionError):
+                    await self.run_script()
 
     async def test_run_unpark_dome_if_parked(self):
         """Test that the script unparks the dome if it is in PARKED state."""
@@ -317,6 +369,8 @@ class TestEnsureOnSkyReadiness(
             ) as mock_home:
                 await self.run_script()
                 mock_home.assert_awaited_once()
+                # Verify booster valve context manager was used
+                self.script.mtcs.m1m3_booster_valve.assert_called_once()
 
     async def test_run_ensure_m1m3_raised_when_parked(self):
         """Test that script raised M1M3 if it is PARKED."""

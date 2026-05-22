@@ -1,0 +1,1 @@
+In mtdome/recover_from_controller_fault.py, refactor method to check that the fault is cleared and check EnabledState.

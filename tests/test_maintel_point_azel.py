@@ -25,6 +25,7 @@ import unittest
 import pytest
 from lsst.ts import salobj
 from lsst.ts.maintel.standardscripts import PointAzEl
+from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts import BaseScriptTestCase
 
 
@@ -161,6 +162,7 @@ class TestPointAzEl(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                 slew_timeout=slew_timeout,
                 program=program,
                 reason=reason,
+                slew_sequentially=False,
             )
 
             await self.run_script()
@@ -188,6 +190,142 @@ class TestPointAzEl(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
 
             self.script.mtcs.point_azel.assert_awaited_once()
             self.script.tcs.stop_tracking.assert_awaited_once()
+
+    async def test_run_azel_sequential_default(self):
+        async with self.make_dry_script():
+            az = 45.0
+            el = 70.0
+            rot_tel = 0.0
+            target_name = "sequential_test"
+            wait_dome = False
+            slew_timeout = 240.0
+
+            await self.configure_script(
+                az=az,
+                el=el,
+                rot_tel=rot_tel,
+                target_name=target_name,
+                wait_dome=wait_dome,
+                slew_timeout=slew_timeout,
+            )
+
+            await self.run_script()
+
+            assert self.script.mtcs.point_azel.await_count == 2
+
+            first_call = self.script.mtcs.point_azel.await_args_list[0]
+            assert first_call.kwargs["az"] == az
+            assert first_call.kwargs["el"] == self.current_elevation
+            assert first_call.kwargs["rot_tel"] == rot_tel
+
+            second_call = self.script.mtcs.point_azel.await_args_list[1]
+            assert second_call.kwargs["az"] == az
+            assert second_call.kwargs["el"] == el
+            assert second_call.kwargs["rot_tel"] == rot_tel
+
+    async def test_run_azel_sequential_explicit(self):
+        async with self.make_dry_script():
+            az = 180.0
+            el = 60.0
+            rot_tel = 10.0
+            target_name = "sequential_explicit"
+            slew_sequentially = True
+
+            await self.configure_script(
+                az=az,
+                el=el,
+                rot_tel=rot_tel,
+                target_name=target_name,
+                slew_sequentially=slew_sequentially,
+            )
+
+            await self.run_script()
+
+            assert self.script.mtcs.point_azel.await_count == 2
+
+            first_call = self.script.mtcs.point_azel.await_args_list[0]
+            assert first_call.kwargs["az"] == az
+            assert first_call.kwargs["el"] == self.current_elevation
+
+            second_call = self.script.mtcs.point_azel.await_args_list[1]
+            assert second_call.kwargs["az"] == az
+            assert second_call.kwargs["el"] == el
+
+    async def test_run_azel_simultaneous(self):
+        async with self.make_dry_script():
+            az = 270.0
+            el = 50.0
+            rot_tel = 5.0
+            target_name = "simultaneous_test"
+            wait_dome = True
+            slew_timeout = 300.0
+            slew_sequentially = False
+
+            await self.configure_script(
+                az=az,
+                el=el,
+                rot_tel=rot_tel,
+                target_name=target_name,
+                wait_dome=wait_dome,
+                slew_timeout=slew_timeout,
+                slew_sequentially=slew_sequentially,
+            )
+
+            await self.run_script()
+
+            self.script.mtcs.point_azel.assert_awaited_once()
+            self.script.mtcs.point_azel.assert_called_with(
+                az=az,
+                el=el,
+                rot_tel=rot_tel,
+                target_name=target_name,
+                wait_dome=wait_dome,
+                slew_timeout=slew_timeout,
+            )
+
+    async def test_run_fail_ignore_m1m3_with_attr_format(self) -> None:
+        async with self.make_script():
+            self.script.mtcs = MTCS(
+                domain=self.script.domain,
+                intended_usage=MTCSUsages.DryTest,
+                log=self.script.log,
+            )
+            self.script.mtcs.rem = unittest.mock.AsyncMock()
+            self.script.mtcs.stop_tracking = unittest.mock.AsyncMock()
+
+            az = 45.0
+            el = 70.0
+
+            await self.configure_script(
+                az=az,
+                el=el,
+                ignore=["comp1", "mtm1m3"],
+            )
+
+            with pytest.raises(AssertionError):
+                await self.run_script()
+
+    async def test_run_fail_ignore_m1m3_with_salobj_format(self) -> None:
+        async with self.make_script():
+            self.script.mtcs = MTCS(
+                domain=self.script.domain,
+                intended_usage=MTCSUsages.DryTest,
+                log=self.script.log,
+            )
+            self.script.mtcs.rem = unittest.mock.AsyncMock()
+            self.script.mtcs.stop_tracking = unittest.mock.AsyncMock()
+
+            az = 45.0
+            el = 70.0
+
+            await self.configure_script(
+                az=az,
+                el=el,
+                ignore=["comp1", "MTM1M3"],
+            )
+
+            with pytest.raises(AssertionError):
+                await self.run_script()
 
 
 if __name__ == "__main__":

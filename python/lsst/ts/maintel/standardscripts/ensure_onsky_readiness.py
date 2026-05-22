@@ -37,18 +37,19 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
     The main steps executed by this script are:
 
     1. Ensure that all MTCS and Camera components are enabled.
-    2. Assert that the dome shutters are open.
-    3. Ensure the M2 force balance system is enabled.
-    4. Ensure MTM1M3 is raised at a safe elevation.
-    5. Ensure the MTMount is homed.
+    2. Ensure that the OCPS:101 CSC is enabled.
+    3. Assert that the dome shutters are open.
+    4. Ensure the M2 force balance system is enabled.
+    5. Ensure MTM1M3 is raised at a safe elevation.
     6. Ensure the M1M3 Force Balance System is enabled.
-    7. Ensure M1M3 Slew Controller Flags are set as required.
-    8. Ensure the M1M3 Mirror Covers are open.
-    9. Ensure Camera Cable Wrap (CCW) following is enabled.
-    10. Ensure Compensation Mode is enabled for both Hexapods.
-    11. Ensure the Dome is unparked.
-    12. Ensure Dome Following Mode is enabled.
-    13. Assert that the AOS (Active Optics System) Closed Loop is enabled.
+    7. Ensure the MTMount is homed.
+    8. Ensure M1M3 Slew Controller Flags are set as required.
+    9. Ensure the M1M3 Mirror Covers are open.
+    10. Ensure Camera Cable Wrap (CCW) following is enabled.
+    11. Ensure Compensation Mode is enabled for both Hexapods.
+    12. Ensure the Dome is unparked.
+    13. Ensure Dome Following Mode is enabled.
+    14. Assert that the AOS (Active Optics System) Closed Loop is enabled.
 
     At each step, the script logs progress, checks system states, and takes
     corrective actions or raises warnings/errors as appropriate. If dome and
@@ -67,9 +68,11 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
 
         self.mtcs = None
         self.lsstcam = None
+        self.ocps = None
         self.assertion_errors = []
 
         self.tel_raise_m1m3_min_el = 20.0
+        self.home_both_axes_timeout = 300.0
 
     async def configure_tcs(self) -> None:
         """Initialize MTCS if not already initialized."""
@@ -94,6 +97,15 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             await self.lsstcam.start_task
         else:
             self.log.debug("LSST Camera already initialized.")
+
+    async def configure_ocps(self):
+        """Configure OCPS if not already configured."""
+        if self.ocps is None:
+            self.log.debug("Creating OCPS instance.")
+            self.ocps = salobj.Remote(self.domain, "OCPS", index=101)
+            await self.ocps.start_task
+        else:
+            self.log.debug("OCPS already initialized.")
 
     @classmethod
     def get_schema(cls):
@@ -156,6 +168,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
 
         await self.configure_tcs()
         await self.configure_camera()
+        await self.configure_ocps()
 
     def set_metadata(self, metadata):
         metadata.duration = 300
@@ -241,6 +254,31 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         except Exception as e:
             self.log.error(f"Unexpected error while checking {group_name}: {e}")
             raise
+
+    async def ensure_ocps_enabled(self) -> None:
+        """Ensure the OCPS:101 CSC is enabled.
+
+        This method checks the current summary state of the OCPS:101
+        remote. If it is already in ENABLED state, no action is taken.
+        If it is not enabled, it attempts to transition it to ENABLED.
+        """
+        self.log.info("Ensuring OCPS:101 is enabled.")
+
+        summary_state = (
+            await self.ocps.evt_summaryState.aget(timeout=self.mtcs.fast_timeout)
+        ).summaryState
+
+        current_state = salobj.State(summary_state)
+
+        if current_state == salobj.State.ENABLED:
+            self.log.info("OCPS:101 is already enabled.")
+        else:
+            self.log.warning(
+                f"OCPS:101 is not enabled (current state: {current_state!r}). "
+                "Attempting to enable."
+            )
+            await salobj.set_summary_state(self.ocps, salobj.State.ENABLED)
+            self.log.info("OCPS:101 has been enabled.")
 
     async def assert_dome_shutter_opened(self) -> None:
         """Assert that dome shutters are opened.
@@ -366,12 +404,23 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         Ensure both axes of the MTMount are homed.
 
         This method checks if both the azimuth and elevation axes of the
-        MTMount are homed. If either axes are not homed, it issues a
-        `cmd_homeBothAxes` command to home both axes.
+        MTMount are homed. If either axis is not homed, it enables the
+        M1M3 booster valve via a context manager and issues a
+        ``cmd_homeBothAxes`` command to home both axes.
+
+        The booster valve context manager
+        (``self.mtcs.m1m3_booster_valve()``) activates the booster valves
+        during the homing motion to protect the M1M3 mirror, following the
+        same pattern used by the ``home_both_axes`` script.
+
+        The M1M3 force balance system must be enabled before calling
+        this method. The ``run`` method ensures this by enabling the
+        force balance system in a prior step.
 
         Raises
         ------
-        RuntimeError: On failure to home axes or retrieve status.
+        RuntimeError
+            On failure to home axes or retrieve status.
         """
         try:
             is_homed = await self._is_mtmount_homed()
@@ -381,9 +430,10 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         if not is_homed:
             self.log.info("Homing both axes of the telescope.")
             await self.checkpoint("Homing both axes.")
-            await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
-                timeout=self.mtcs.long_timeout
-            )
+            async with self.mtcs.m1m3_booster_valve():
+                await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
+                    timeout=self.home_both_axes_timeout
+                )
         else:
             self.log.info("Telescope is already homed. Nothing to do.")
 
@@ -518,6 +568,9 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         await self.checkpoint("Ensure all LSSTCam components are enabled.")
         await self.ensure_group_all_enabled(self.lsstcam, "LSSTCam")
 
+        await self.checkpoint("Ensure OCPS:101 is enabled.")
+        await self.ensure_ocps_enabled()
+
         await self.checkpoint("Assert that MTDome Shutters are opened.")
         await self.assert_dome_shutter_opened()
 
@@ -527,11 +580,11 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         await self.checkpoint("Ensure MTM1M3 is raised at safe elevation.")
         await self.ensure_m1m3_raised_at_safe_elevation()
 
-        await self.checkpoint("Ensure MTMount is homed.")
-        await self.ensure_mtmount_homed()
-
         await self.checkpoint("Ensure M1M3 Force Balance System is enabled.")
         await self.ensure_m1m3_balance_system_enabled()
+
+        await self.checkpoint("Ensure MTMount is homed.")
+        await self.ensure_mtmount_homed()
 
         await self.checkpoint("Ensure M1M3 Slew Controller Flags are enabled.")
         await self.ensure_m1m3_slew_controller_flags_enabled()
