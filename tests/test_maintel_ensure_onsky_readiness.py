@@ -56,9 +56,10 @@ class TestEnsureOnSkyReadiness(
         self.script.lsstcam.enable = mock.AsyncMock()
         self.script.mtcs.enable_m2_balance_system = mock.AsyncMock()
         self.script.mtcs.raise_m1m3 = mock.AsyncMock()
-        self.script.mtcs.enter_m1m3_engineering_mode = mock.AsyncMock()
-        self.script.mtcs.enable_m1m3_balance_system = mock.AsyncMock()
-        self.script.mtcs.set_m1m3_slew_controller_settings = mock.AsyncMock()
+        self.script.mtcs.assert_m1m3_force_balance_system_enabled = mock.AsyncMock()
+        self.script.mtcs.assert_m1m3_slew_controller_settings = mock.AsyncMock(
+            return_value=[]
+        )
         self.script.mtcs.open_m1_cover = mock.AsyncMock()
         self.script.mtcs.enable_compensation_mode = mock.AsyncMock()
         self.script.mtcs.enable_ccw_following = mock.AsyncMock()
@@ -135,37 +136,6 @@ class TestEnsureOnSkyReadiness(
 
         return (self.script,)
 
-    async def test_configure_default(self):
-        async with self.make_script():
-            await self.configure_script(slew_flags="default")
-            default_flags, default_enables = self.script._get_default_m1m3_slew_flags()
-            assert self.script.config.slew_flags == default_flags
-            assert self.script.config.enable_flags == default_enables
-
-    async def test_configure_no_config_provided(self):
-        """Test configuration with no parameters provided (uses defaults)."""
-        async with self.make_script():
-            await self.configure_script()
-            default_flags, default_enables = self.script._get_default_m1m3_slew_flags()
-            assert self.script.config.slew_flags == default_flags
-            assert self.script.config.enable_flags == default_enables
-
-    async def test_configure_custom_flags(self):
-        async with self.make_script():
-            slew_flags = [
-                "ACCELERATIONFORCES",
-                "BALANCEFORCES",
-                "VELOCITYFORCES",
-                "BOOSTERVALVES",
-            ]
-            enable_flags = [True, True, True, False]
-            await self.configure_script(
-                slew_flags=slew_flags, enable_flags=enable_flags
-            )
-            enum_flags = self.script._convert_m1m3_slew_flag_names_to_enum(slew_flags)
-            assert self.script.config.slew_flags == enum_flags
-            assert self.script.config.enable_flags == enable_flags
-
     async def test_run_ready_for_on_sky(self):
         """
         Test the script when all components are already ready for
@@ -173,23 +143,15 @@ class TestEnsureOnSkyReadiness(
         """
 
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             await self.run_script()
             # Assert all main methods were called exactly once
             self.script.mtcs.assert_all_enabled.assert_awaited_once()
             self.script.lsstcam.assert_all_enabled.assert_awaited_once()
             self.script.mtcs.enable_m2_balance_system.assert_awaited_once()
             self.script.mtcs.raise_m1m3.assert_not_called()  # Not called if already ACTIVE
-            self.script.mtcs.enter_m1m3_engineering_mode.assert_awaited_once()
-            self.script.mtcs.enable_m1m3_balance_system.assert_awaited_once()
-            self.script.mtcs.set_m1m3_slew_controller_settings.assert_has_awaits(
-                [
-                    mock.call(flag, enable)
-                    for flag, enable in zip(
-                        self.script.config.slew_flags, self.script.config.enable_flags
-                    )
-                ]
-            )
+            self.script.mtcs.assert_m1m3_force_balance_system_enabled.assert_awaited_once()
+            self.script.mtcs.assert_m1m3_slew_controller_settings.assert_awaited_once()
             self.script.mtcs.open_m1_cover.assert_awaited_once()
             self.script.mtcs.enable_ccw_following.assert_awaited_once()
             self.script.mtcs.enable_compensation_mode.assert_has_awaits(
@@ -203,7 +165,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_ensure_ocps_enabled_when_not_enabled(self):
         """Test that the script enables OCPS:101 if it is not enabled."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
 
             # Set OCPS to STANDBY state
             self.script.ocps.evt_summaryState.aget = mock.AsyncMock(
@@ -221,7 +183,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_ensure_ocps_enabled_failure(self):
         """Test that the script raises if OCPS:101 cannot be enabled."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
 
             # Set OCPS to STANDBY state
             self.script.ocps.evt_summaryState.aget = mock.AsyncMock(
@@ -240,7 +202,7 @@ class TestEnsureOnSkyReadiness(
         """Test that the script unparks the dome if it is in PARKED state."""
 
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
 
             self.script.mtcs.rem.mtdome.evt_azMotion.aget = mock.AsyncMock(
                 return_value=mock.Mock(state=MTDome.MotionState.PARKED)
@@ -253,7 +215,7 @@ class TestEnsureOnSkyReadiness(
     async def test_components_not_all_enabled(self):
         """Test the script when some components are not enabled."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
 
             # Patch assert_all_enabled to raise AssertionError for mtcs/lsstcam
             self.script.mtcs.assert_all_enabled = mock.AsyncMock(
@@ -290,7 +252,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_dome_shutter_not_opened(self):
         """Test the script when the dome shutters are not opened."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             # Patch the dome shutter event to return CLOSED states
             self.script.mtcs.rem.mtdome.evt_shutterMotion.aget = mock.AsyncMock(
                 return_value=mock.Mock(
@@ -303,7 +265,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_ensure_m2_balance_system_enabled_failure(self):
         """Test the script when it fails to enable M2 balance system."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             self.script.mtcs.enable_m2_balance_system = mock.AsyncMock(
                 side_effect=RuntimeError("Failed to enable M2 balance system.")
             )
@@ -313,7 +275,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_ensure_m1m3_raised_fails_in_low_elevation(self):
         """Test the script fails when mtmount elevation is low."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             self.script.mtcs.rem.mtmount.tel_elevation.aget = mock.AsyncMock(
                 return_value=mock.Mock(actualPosition=15.0)
             )
@@ -326,7 +288,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_ensure_m1m3_raised_fails_in_fault_state(self):
         """Test the script with M1M3 in FAULT and safe elevation."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             self.script.mtcs.rem.mtmount.tel_elevation.aget = mock.AsyncMock(
                 return_value=mock.Mock(actualPosition=75.0)
             )
@@ -339,7 +301,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_ensure_m1m3_raised_fails_in_unexpected_state(self):
         """Test the script with M1M3 in unexpected state and safe elevation."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             self.script.mtcs.rem.mtmount.tel_elevation.aget = mock.AsyncMock(
                 return_value=mock.Mock(actualPosition=75.0)
             )
@@ -352,7 +314,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_ensure_m1m3_raised_fails_if_raise_fails(self):
         """Test the script when M1M3 is PARKED and raise_m1m3 fails."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             # Simulate safe elevation and PARKED state
             self.script.mtcs.rem.mtmount.tel_elevation.aget = mock.AsyncMock(
                 return_value=mock.Mock(actualPosition=75.0)
@@ -370,7 +332,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_ensure_mtmount_is_homed_if_not_homed(self):
         """Test mtmount is homed if not already homed."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             self.script.mtcs.rem.mtmount.evt_azimuthHomed.aget = mock.AsyncMock(
                 return_value=mock.Mock(homed=False)
             )
@@ -388,7 +350,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_ensure_m1m3_raised_when_parked(self):
         """Test that script raised M1M3 if it is PARKED."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             # Patch elevation to be safe and state to PARKED
             self.script.mtcs.rem.mtmount.tel_elevation.aget = mock.AsyncMock(
                 return_value=mock.Mock(actualPosition=75.0)
@@ -403,7 +365,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_ensure_mtmount_homed_fails_if_homing_fails(self):
         """Test that script fails if homing command fails."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             # Simulate not homed
             self.script.mtcs.rem.mtmount.evt_azimuthHomed.aget = mock.AsyncMock(
                 return_value=mock.Mock(homed=False)
@@ -421,7 +383,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_ensure_mtmount_homed_fails_if_check_homed_errors(self):
         """Test that script fails for errors while retrieving home status."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             self.script.mtcs.rem.mtmount.evt_azimuthHomed.aget = mock.AsyncMock(
                 side_effect=Exception("Some error")
             )
@@ -435,38 +397,39 @@ class TestEnsureOnSkyReadiness(
                     await self.run_script()
                 mock_home.assert_not_called()
 
-    async def test_run_ensure_m1m3_balance_system_enabled_failure(self):
-        """Test the script when it fails to enable M1M3 balance system."""
+    async def test_run_assert_m1m3_force_balance_enabled_failure(self):
+        """Test it fails when force balance is not enabled."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
-
-            # Simulate m1m3 engineering mode
-            self.script.mtcs.enter_m1m3_engineering_mode = mock.AsyncMock(
-                return_value=True
+            await self.configure_script()
+            self.script.mtcs.assert_m1m3_force_balance_system_enabled = mock.AsyncMock(
+                side_effect=RuntimeError("M1M3 force balance system is not enabled.")
             )
-            self.script.mtcs.enable_m1m3_balance_system = mock.AsyncMock(
-                side_effect=RuntimeError("Failed to enable M1M3 balance system.")
+            with pytest.raises(AssertionError):
+                await self.run_script()
+            # Verify the script stopped before reaching later steps
+            self.script.mtcs.open_m1_cover.assert_not_called()
+
+    async def test_run_assert_m1m3_slew_controller_flags_warning(self):
+        """Test it collects warning when slew flags are not enabled."""
+        async with self.make_script():
+            await self.configure_script()
+            # Return disabled flags to trigger warning
+            self.script.mtcs.assert_m1m3_slew_controller_settings = mock.AsyncMock(
+                return_value=["BOOSTERVALVES"]
             )
             with pytest.raises(AssertionError):
                 await self.run_script()
 
-    async def test_run_ensure_m1m3_slew_controller_flags_enabled_failure(self):
-        """Test the script when it fails to set M1M3 slew controller flags."""
-        async with self.make_script():
-            await self.configure_script(
-                slew_flags=["ACCELERATIONFORCES", "BALANCEFORCES"],
-                enable_flags=[True, True],
-            )
-            self.script.mtcs.set_m1m3_slew_controller_settings = mock.AsyncMock(
-                side_effect=RuntimeError("Failed to set M1M3 slew controller flags.")
-            )
-            with pytest.raises(AssertionError):
-                await self.run_script()
+            # Verify the slew controller warning was collected
+            assert len(self.script.assertion_errors) == 1
+            error_msg = str(self.script.assertion_errors[0])
+            assert "Some M1M3 slew controller flags are not enabled" in error_msg
+            assert "BOOSTERVALVES" in error_msg
 
     async def test_run_ensure_m1m3_cover_opened_failure(self):
         """Test the script when it fails to open M1M3 mirror covers."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             self.script.mtcs.open_m1_cover = mock.AsyncMock(
                 side_effect=RuntimeError("Failed to open M1M3 mirror covers.")
             )
@@ -476,7 +439,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_ensure_ccw_following_enabled_failure(self):
         """Test the script when it fails to enable CCW following."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             self.script.mtcs.enable_ccw_following = mock.AsyncMock(
                 side_effect=RuntimeError("Failed to enable CCW following.")
             )
@@ -486,7 +449,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_ensure_hexapod_compensation_mode_enabled_failure(self):
         """Test the script when it fails to enable hexapod comp. mode."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             self.script.mtcs.enable_compensation_mode = mock.AsyncMock(
                 side_effect=RuntimeError("Failed to enable hexapod compensation mode.")
             )
@@ -496,7 +459,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_ensure_dome_following_enabled_failure(self):
         """Test the script when it fails to enable dome following."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             self.script.mtcs.enable_dome_following = mock.AsyncMock(
                 side_effect=RuntimeError("Failed to enable dome following.")
             )
@@ -508,7 +471,7 @@ class TestEnsureOnSkyReadiness(
 
         # WAITING_IMAGE: should pass without exception
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             self.script.mtcs.rem.mtaos.evt_closedLoopState.aget = mock.AsyncMock(
                 return_value=mock.Mock(state=MTAOS.ClosedLoopState.WAITING_IMAGE)
             )
@@ -516,7 +479,7 @@ class TestEnsureOnSkyReadiness(
 
         # ERROR state: should raise AssertionError
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             self.script.mtcs.rem.mtaos.evt_closedLoopState.aget = mock.AsyncMock(
                 return_value=mock.Mock(state=MTAOS.ClosedLoopState.ERROR)
             )
@@ -527,7 +490,7 @@ class TestEnsureOnSkyReadiness(
 
         # IDLE state: should raise AssertionError
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
             self.script.mtcs.rem.mtaos.evt_closedLoopState.aget = mock.AsyncMock(
                 return_value=mock.Mock(state=MTAOS.ClosedLoopState.IDLE)
             )
@@ -540,7 +503,7 @@ class TestEnsureOnSkyReadiness(
         """Test that the script collects assertion errors and raises
         them at the end."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
 
             # Mock dome shutter to be closed
             self.script.mtcs.rem.mtdome.evt_shutterMotion.aget = mock.AsyncMock(
@@ -559,20 +522,11 @@ class TestEnsureOnSkyReadiness(
 
             # Verify that the script continued despite the assertion errors
             self.script.mtcs.enable_m2_balance_system.assert_awaited_once()
-            self.script.mtcs.enter_m1m3_engineering_mode.assert_awaited_once()
-            self.script.mtcs.enable_m1m3_balance_system.assert_awaited_once()
             self.script.mtcs.open_m1_cover.assert_awaited_once()
             self.script.mtcs.enable_ccw_following.assert_awaited_once()
             self.script.mtcs.enable_dome_following.assert_awaited_once()
-            self.script.mtcs.set_m1m3_slew_controller_settings.assert_has_awaits(
-                [
-                    mock.call(flag, enable)
-                    for flag, enable in zip(
-                        self.script.config.slew_flags,
-                        self.script.config.enable_flags,
-                    )
-                ]
-            )
+            self.script.mtcs.assert_m1m3_force_balance_system_enabled.assert_awaited_once()
+            self.script.mtcs.assert_m1m3_slew_controller_settings.assert_awaited_once()
             self.script.mtcs.enable_compensation_mode.assert_has_awaits(
                 [mock.call("mthexapod_1"), mock.call("mthexapod_2")]
             )
@@ -604,7 +558,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_mtm1m3ts_not_enabled(self):
         """Test the script fails when MTM1M3TS is not enabled."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
 
             # Set MTM1M3TS to STANDBY state
             self.script.mtm1m3ts.evt_summaryState.aget = mock.AsyncMock(
@@ -617,7 +571,7 @@ class TestEnsureOnSkyReadiness(
     async def test_run_mtm1m3ts_in_engineering_mode(self):
         """Test the script fails when MTM1M3TS is in engineering mode."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
 
             # Set MTM1M3TS to engineering mode
             self.script.mtm1m3ts.evt_engineeringMode.aget = mock.AsyncMock(
@@ -631,7 +585,7 @@ class TestEnsureOnSkyReadiness(
         """Test the script passes when MTM1M3TS is enabled and not in
         engineering mode."""
         async with self.make_script():
-            await self.configure_script(slew_flags="default")
+            await self.configure_script()
 
             # Verify MTM1M3TS state was checked
             await self.run_script()
