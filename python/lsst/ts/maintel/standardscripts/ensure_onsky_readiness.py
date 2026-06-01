@@ -50,7 +50,8 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
     12. Ensure the Dome is unparked.
     13. Ensure Dome Following Mode is enabled.
     14. Assert that the AOS (Active Optics System) Closed Loop is enabled.
-    15. Assert that the MTM1M3TS is not in engineering mode.
+    15. Ensure M1M3 is not in engineering mode.
+    16. Assert that the MTM1M3TS is not in engineering mode.
 
     At each step, the script logs progress, checks system states, and takes
     corrective actions or raises warnings/errors as appropriate. If dome and
@@ -636,6 +637,9 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
 
         await self.checkpoint("Assert that AOS Closed Loop is enabled.")
         await self.assert_aos_closed_loop_enabled()
+
+        await self.checkpoint("Ensure M1M3 is not in engineering mode.")
+        await self.mtcs.ensure_m1m3_not_in_engineering_mode()
 
         await self.checkpoint("Assert that MTM1M3TS is not in engineering mode.")
         await self.assert_mtm1m3ts_not_in_engineering_mode()

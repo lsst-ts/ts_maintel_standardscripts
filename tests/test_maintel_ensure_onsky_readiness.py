@@ -66,6 +66,7 @@ class TestEnsureOnSkyReadiness(
         self.script.mtcs.unpark_dome = mock.AsyncMock()
         self.script.mtcs.enable_dome_following = mock.AsyncMock()
         self.script.mtcs.home_both_axes = mock.AsyncMock()
+        self.script.mtcs.ensure_m1m3_not_in_engineering_mode = mock.AsyncMock()
 
         # Mock m1m3_booster_valve as an async context manager
         self.script.mtcs.m1m3_booster_valve = mock.MagicMock(
