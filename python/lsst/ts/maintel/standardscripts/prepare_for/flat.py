@@ -55,6 +55,7 @@ class PrepareForFlat(salobj.BaseScript):
         self.mtcs = None
         self.lsstcam = None
         self.mtm1m3ts = None
+        self.homing_attempts = 10
 
     @classmethod
     def get_schema(cls):
@@ -77,6 +78,11 @@ class PrepareForFlat(salobj.BaseScript):
                     type: array
                     items:
                         type: string
+                homing_attempts:
+                    description: Number of attempts to home both axes.
+                    type: integer
+                    default: 10
+                    minimum: 1
             additionalProperties: false
         """
         return yaml.safe_load(schema_yaml)
@@ -123,6 +129,9 @@ class PrepareForFlat(salobj.BaseScript):
         if hasattr(config, "ignore"):
             self.mtcs.disable_checks_for_components(components=config.ignore)
             self.lsstcam.disable_checks_for_components(components=config.ignore)
+
+        if hasattr(config, "homing_attempts"):
+            self.homing_attempts = config.homing_attempts
 
     def set_metadata(self, metadata):
         metadata.duration = 600.0
@@ -175,7 +184,7 @@ class PrepareForFlat(salobj.BaseScript):
         await self.lsstcam.assert_all_enabled(
             message="All LSSTCam components need to be enabled to prepare for flat-field operations."
         )
-        await self.mtcs.prepare_for_flatfield()
+        await self.mtcs.prepare_for_flatfield(homing_attempts=self.homing_attempts)
 
         await self.checkpoint("Assert that MTM1M3TS is not in engineering mode.")
         await self.assert_mtm1m3ts_not_in_engineering_mode()

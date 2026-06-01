@@ -40,7 +40,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
     2. Ensure that the OCPS:101 CSC is enabled.
     3. Assert that the dome shutters are open.
     4. Ensure the M2 force balance system is enabled.
-    5. Ensure MTM1M3 is raised at a safe elevation.
+    5. Ensure MTM1M3 is raised at a safe elevation (with retry logic).
     6. Assert M1M3 force balance system is enabled.
     7. Assert M1M3 slew controller flags are enabled (warning if not).
     8. Ensure the MTMount is homed.
@@ -75,6 +75,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
 
         self.tel_raise_m1m3_min_el = 20.0
         self.home_both_axes_timeout = 300.0
+        self.homing_attempts = 10
 
     async def configure_tcs(self) -> None:
         """Initialize MTCS if not already initialized."""
@@ -151,6 +152,11 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             type: array
             items:
               type: boolean
+          homing_attempts:
+            description: Number of attempts to home both axes.
+            type: integer
+            default: 10
+            minimum: 1
         additionalProperties: false
         """
         return yaml.safe_load(schema_yaml)
@@ -179,6 +185,9 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         await self.configure_camera()
         await self.configure_ocps()
         await self.configure_mtm1m3ts()
+
+        if hasattr(config, "homing_attempts"):
+            self.homing_attempts = config.homing_attempts
 
     def set_metadata(self, metadata):
         metadata.duration = 300
@@ -405,10 +414,7 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         if not is_homed:
             self.log.info("Homing both axes of the telescope.")
             await self.checkpoint("Homing both axes.")
-            async with self.mtcs.m1m3_booster_valve():
-                await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
-                    timeout=self.home_both_axes_timeout
-                )
+            await self.mtcs.home_both_axes(homing_attempts=self.homing_attempts)
         else:
             self.log.info("Telescope is already homed. Nothing to do.")
 

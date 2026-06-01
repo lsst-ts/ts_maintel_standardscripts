@@ -64,6 +64,7 @@ class PrepareForOnSky(salobj.BaseScript):
         self.mtcs = None
         self.lsstcam = None
         self.mtm1m3ts = None
+        self.homing_attempts = 10
 
     @classmethod
     def get_schema(cls):
@@ -106,6 +107,11 @@ class PrepareForOnSky(salobj.BaseScript):
                     type: array
                     items:
                         type: string
+                homing_attempts:
+                    description: Number of attempts to home both axes.
+                    type: integer
+                    default: 10
+                    minimum: 1
             additionalProperties: false
         """
         return yaml.safe_load(schema_yaml)
@@ -179,6 +185,9 @@ class PrepareForOnSky(salobj.BaseScript):
         filter_value = getattr(config, "filter", "i_39")
         self.filter = self.map_filter_value(filter_value)
 
+        if hasattr(config, "homing_attempts"):
+            self.homing_attempts = config.homing_attempts
+
     def set_metadata(self, metadata):
         metadata.duration = 600.0 + self.lsstcam.filter_change_timeout
 
@@ -229,7 +238,7 @@ class PrepareForOnSky(salobj.BaseScript):
             message="All MTCS components need to be enabled to prepare for on-sky observations."
         )
 
-        await self.mtcs.prepare_for_onsky()
+        await self.mtcs.prepare_for_onsky(homing_attempts=self.homing_attempts)
 
         await self.checkpoint(f"Setting up LSSTCam with filter '{self.filter}'.")
 

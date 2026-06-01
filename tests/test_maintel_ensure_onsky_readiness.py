@@ -65,6 +65,7 @@ class TestEnsureOnSkyReadiness(
         self.script.mtcs.enable_ccw_following = mock.AsyncMock()
         self.script.mtcs.unpark_dome = mock.AsyncMock()
         self.script.mtcs.enable_dome_following = mock.AsyncMock()
+        self.script.mtcs.home_both_axes = mock.AsyncMock()
 
         # Mock m1m3_booster_valve as an async context manager
         self.script.mtcs.m1m3_booster_valve = mock.MagicMock(
@@ -339,13 +340,10 @@ class TestEnsureOnSkyReadiness(
             self.script.mtcs.rem.mtmount.evt_elevationHomed.aget = mock.AsyncMock(
                 return_value=mock.Mock(homed=True)
             )
-            with mock.patch.object(
-                self.script.mtcs.rem.mtmount.cmd_homeBothAxes, "start"
-            ) as mock_home:
-                await self.run_script()
-                mock_home.assert_awaited_once()
-                # Verify booster valve context manager was used
-                self.script.mtcs.m1m3_booster_valve.assert_called_once()
+            await self.run_script()
+            self.script.mtcs.home_both_axes.assert_awaited_once_with(
+                homing_attempts=self.script.homing_attempts
+            )
 
     async def test_run_ensure_m1m3_raised_when_parked(self):
         """Test that script raised M1M3 if it is PARKED."""
@@ -373,8 +371,8 @@ class TestEnsureOnSkyReadiness(
             self.script.mtcs.rem.mtmount.evt_elevationHomed.aget = mock.AsyncMock(
                 return_value=mock.Mock(homed=True)
             )
-            # Simulate homing command failure
-            self.script.mtcs.rem.mtmount.cmd_homeBothAxes.start = mock.AsyncMock(
+            # Simulate homing failure via home_both_axes
+            self.script.mtcs.home_both_axes = mock.AsyncMock(
                 side_effect=RuntimeError("Failed to home both axes")
             )
             with pytest.raises(AssertionError):
@@ -390,12 +388,9 @@ class TestEnsureOnSkyReadiness(
             self.script.mtcs.rem.mtmount.evt_elevationHomed.aget = mock.AsyncMock(
                 side_effect=Exception("Some error")
             )
-            with mock.patch.object(
-                self.script.mtcs.rem.mtmount.cmd_homeBothAxes, "start"
-            ) as mock_home:
-                with pytest.raises(AssertionError):
-                    await self.run_script()
-                mock_home.assert_not_called()
+            with pytest.raises(AssertionError):
+                await self.run_script()
+            self.script.mtcs.home_both_axes.assert_not_awaited()
 
     async def test_run_assert_m1m3_force_balance_enabled_failure(self):
         """Test it fails when force balance is not enabled."""
