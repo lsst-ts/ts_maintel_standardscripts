@@ -1,0 +1,1 @@
+Added the 'synchronous_closed_loop' configuration parameter to the 'enable_aos_closed_loop.py' script.

@@ -61,6 +61,7 @@ class HomeBothAxes(salobj.BaseScript):
         self.home_both_axes_timeout = 300.0  # timeout to home both MTMount axes.
         self.mtcs = None
         self.final_home_position = None
+        self.homing_attempts = 10
 
     @classmethod
     def get_schema(cls):
@@ -104,6 +105,11 @@ class HomeBothAxes(salobj.BaseScript):
                             - type: number
                               minimum: 0
                               maximum: 90
+                homing_attempts:
+                    description: Number of attempts to home both axes.
+                    type: integer
+                    default: 10
+                    minimum: 1
 
             additionalProperties: false
         """
@@ -135,6 +141,9 @@ class HomeBothAxes(salobj.BaseScript):
 
         if hasattr(config, "final_home_position"):
             self.final_home_position = config.final_home_position
+
+        if hasattr(config, "homing_attempts"):
+            self.homing_attempts = config.homing_attempts
 
     def set_metadata(self, metadata):
         metadata.duration = self.home_both_axes_timeout
@@ -180,21 +189,57 @@ class HomeBothAxes(salobj.BaseScript):
         )
         return mount_el.actualPosition
 
+    async def assert_mtmount_enabled(self) -> None:
+        """Assert that MTMount is in the ENABLED state.
+
+        Raises
+        ------
+        RuntimeError
+            If MTMount is not in the ENABLED state.
+        """
+        summary_state = await self.mtcs.rem.mtmount.evt_summaryState.aget(
+            timeout=self.mtcs.fast_timeout
+        )
+        if summary_state.summaryState != salobj.State.ENABLED:
+            raise RuntimeError(
+                f"MTMount is not enabled (state={salobj.State(summary_state.summaryState)!r}). "
+                "Cannot proceed with homing."
+            )
+
     async def run(self):
-        await self.assert_m1m3_raised()
 
         self.log.info("Ensuring M1M3 force balance system is enabled before homing.")
         await self.mtcs.enable_m1m3_balance_system()
 
-        await self.checkpoint("Homing Both Axes at current position")
-        start_time = time.time()
-        async with self.mtcs.m1m3_booster_valve():
-            await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
-                timeout=self.home_both_axes_timeout
+        homing_success = False
+        for attempt in range(1, self.homing_attempts + 1):
+            await self.assert_mtmount_enabled()
+            await self.assert_m1m3_raised()
+            await self.checkpoint(
+                f"Homing Both Axes (attempt {attempt} of {self.homing_attempts}) at current position."
             )
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        self.log.info(f"Homing both axes took {elapsed_time:.2f} seconds")
+            try:
+                start_time = time.time()
+                async with self.mtcs.m1m3_booster_valve():
+                    await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
+                        timeout=self.home_both_axes_timeout
+                    )
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                self.log.info(f"Homing both axes took {elapsed_time:.2f} seconds.")
+                homing_success = True
+                break
+            except Exception as err:
+                self.log.warning(
+                    f"Homing failed on attempt {attempt} of {self.homing_attempts}: {err}. "
+                    f"Waiting {self.mtcs.fast_timeout}s before continuing."
+                )
+                await asyncio.sleep(self.mtcs.fast_timeout)
+
+        if not homing_success:
+            raise RuntimeError(
+                f"Failed to home both axes after {self.homing_attempts} attempts."
+            )
 
         if self.final_home_position is not None:
 
@@ -220,15 +265,35 @@ class HomeBothAxes(salobj.BaseScript):
 
             await self.mtcs.stop_tracking()
 
-            await self.checkpoint("Homing Both Axes at final position")
-            start_time = time.time()
-            async with self.mtcs.m1m3_booster_valve():
-                await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
-                    timeout=self.home_both_axes_timeout
+            homing_success = False
+            for attempt in range(1, self.homing_attempts + 1):
+                await self.assert_mtmount_enabled()
+                await self.assert_m1m3_raised()
+                await self.checkpoint(
+                    f"Homing Both Axes (attempt {attempt} of {self.homing_attempts}) at final position"
                 )
-            end_time = time.time()
-            elapsed_time = end_time - start_time
-            self.log.info(f"Homing both axes took {elapsed_time:.2f} seconds")
+                try:
+                    start_time = time.time()
+                    async with self.mtcs.m1m3_booster_valve():
+                        await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
+                            timeout=self.home_both_axes_timeout
+                        )
+                    end_time = time.time()
+                    elapsed_time = end_time - start_time
+                    self.log.info(f"Homing both axes took {elapsed_time:.2f} seconds")
+                    homing_success = True
+                    break
+                except Exception as err:
+                    self.log.warning(
+                        f"Homing failed on attempt {attempt} of {self.homing_attempts}: {err} "
+                        f"Waiting {self.mtcs.fast_timeout}s before continuing."
+                    )
+                await asyncio.sleep(self.mtcs.fast_timeout)
+
+            if not homing_success:
+                raise RuntimeError(
+                    f"Failed to home both axes after {self.homing_attempts} attempts."
+                )
 
     async def cleanup(self):
         if self.state.state != ScriptState.STOPPING:

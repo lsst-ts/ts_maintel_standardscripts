@@ -1,0 +1,1 @@
+Updated HomeBothAxes script to perform a configurable amount of attempts to home the mount.

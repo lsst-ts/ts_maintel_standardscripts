@@ -100,6 +100,12 @@ class EnableAOSClosedLoop(BaseBlockScript):
                     description: >-
                         Configure close loop to discard intermediate corrections?
                     type: boolean
+                synchronous_closed_loop:
+                    description: >-
+                        Configure close loop to run in synchronous mode?
+                        In this mode users must send issue correction command
+                        for the corrections to be applied.
+                    type: boolean
             additionalProperties: false
         """
         schema_dict = yaml.safe_load(schema_yaml)
@@ -127,6 +133,7 @@ class EnableAOSClosedLoop(BaseBlockScript):
         self.discard_intermediate_corrections = getattr(
             config, "discard_intermediate_corrections", None
         )
+        self.synchronous_closed_loop = getattr(config, "synchronous_closed_loop", None)
 
         await super().configure(config=config)
 
@@ -152,6 +159,9 @@ class EnableAOSClosedLoop(BaseBlockScript):
             config["discard_intermediate_corrections"] = (
                 self.discard_intermediate_corrections
             )
+        if self.synchronous_closed_loop is not None:
+            config["synchronous_closed_loop"] = self.synchronous_closed_loop
+
         config_yaml = yaml.safe_dump(config)
 
         await self.mtcs.enable_aos_closed_loop(config=config_yaml)

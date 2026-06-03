@@ -23,10 +23,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import call, patch
 
-from lsst.ts import standardscripts
+from lsst.ts import salobj, standardscripts
 from lsst.ts.maintel.standardscripts import HomeBothAxes
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.xml.enums.MTM1M3 import DetailedStates
+from lsst.ts.xml.enums.Script import ScriptState
 
 
 class TestHomeBothAxes(
@@ -41,6 +42,10 @@ class TestHomeBothAxes(
             log=self.script.log,
         )
         self.script.mtcs.rem.mtmount = unittest.mock.AsyncMock()
+        self.script.mtcs.rem.mtmount.evt_summaryState = unittest.mock.AsyncMock()
+        self.script.mtcs.rem.mtmount.evt_summaryState.aget = unittest.mock.AsyncMock(
+            return_value=SimpleNamespace(summaryState=salobj.State.ENABLED)
+        )
         self.script.mtcs.rem.mtm1m3 = unittest.mock.AsyncMock()
         self.script.mtcs.rem.mtm1m3.evt_detailedState = unittest.mock.AsyncMock()
         self.script.mtcs.rem.mtm1m3.evt_detailedState.aget = unittest.mock.AsyncMock()
@@ -150,6 +155,74 @@ class TestHomeBothAxes(
             self.script.mtcs.disable_m1m3_balance_system.assert_not_called()
             self.script.mtcs.enable_m1m3_balance_system.assert_awaited_once()
             self.script.mtcs.m1m3_booster_valve.assert_called()
+
+    async def test_run_with_multiple_attempts(self):
+        async with self.make_script():
+            self.script.mtcs.rem.mtm1m3.evt_detailedState.aget.return_value = (
+                SimpleNamespace(detailedState=DetailedStates.ACTIVE)
+            )
+            self.script.mtcs.rem.mtmount.cmd_homeBothAxes.start.side_effect = [
+                RuntimeError("Simulated homing failure"),
+                RuntimeError("Simulated homing failure"),
+                None,
+            ]
+            await self.configure_script(homing_attempts=3)
+
+            await self.run_script()
+
+            self.assertEqual(
+                self.script.mtcs.rem.mtmount.cmd_homeBothAxes.start.call_count, 3
+            )
+
+    async def test_mtmount_not_enabled_raises_error(self):
+        async with self.make_script():
+            self.script.mtcs.rem.mtm1m3.evt_detailedState.aget.return_value = (
+                SimpleNamespace(detailedState=DetailedStates.ACTIVE)
+            )
+            self.script.mtcs.rem.mtmount.evt_summaryState.aget.return_value = (
+                SimpleNamespace(summaryState=salobj.State.DISABLED)
+            )
+            await self.configure_script()
+
+            await self.run_script(expected_final_state=ScriptState.FAILED)
+
+            self.assertEqual(self.script.state.state, ScriptState.FAILED)
+            self.assertIn("MTMount is not enabled", self.script.state.reason)
+
+    async def test_run_with_custom_homing_attempts(self):
+        async with self.make_script():
+            self.script.mtcs.rem.mtm1m3.evt_detailedState.aget.return_value = (
+                SimpleNamespace(detailedState=DetailedStates.ACTIVE)
+            )
+            await self.configure_script(homing_attempts=5)
+
+            await self.run_script()
+
+            self.assertEqual(
+                self.script.mtcs.rem.mtmount.cmd_homeBothAxes.start.call_count, 1
+            )
+            self.assertEqual(self.script.homing_attempts, 5)
+
+    async def test_run_with_final_home_position_and_retries(self):
+        async with self.make_script():
+            self.script.mtcs.rem.mtm1m3.evt_detailedState.aget.return_value = (
+                SimpleNamespace(detailedState=DetailedStates.ACTIVE)
+            )
+            self.script.mtcs.rem.mtmount.cmd_homeBothAxes.start.side_effect = [
+                None,
+                RuntimeError("Simulated homing failure"),
+                RuntimeError("Simulated homing failure"),
+                None,
+            ]
+            await self.configure_script(
+                final_home_position={"az": 1, "el": 46}, homing_attempts=3
+            )
+
+            await self.run_script()
+
+            self.assertEqual(
+                self.script.mtcs.rem.mtmount.cmd_homeBothAxes.start.call_count, 4
+            )
 
 
 if __name__ == "__main__":
