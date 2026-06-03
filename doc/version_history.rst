@@ -8,6 +8,17 @@ Version History
 
 .. towncrier release notes start
 
+v0.8.0 (2026-06-03)
+===================
+
+New Features
+------------
+
+- Added the 'synchronous_closed_loop' configuration parameter to the 'enable_aos_closed_loop.py' script. (`OSW-2269 <https://rubinobs.atlassian.net//browse/OSW-2269>`_)
+- Updated HomeBothAxes script to perform a configurable amount of attempts to home the mount. (`OSW-2333 <https://rubinobs.atlassian.net//browse/OSW-2333>`_)
+- Updated ``wait_mtaos_idle`` in the ``TrackTargetAndTakeImageLSSTCam`` script to handle aos correction if the state is WAITING_APPLY. (`OSW-2280 <https://rubinobs.atlassian.net//browse/OSW-2280>`_)
+
+
 v0.7.0 (2026-05-22)
 ===================
 
