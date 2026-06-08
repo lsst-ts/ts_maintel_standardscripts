@@ -1,3 +1,0 @@
-Replaced explicit force balance system enable step with an assertion check in ``maintel/ensure_onsky_readiness.py``.
-The force balance system is now automatically enabled at the CSC level when the mirror is raised, and the script verifies this is the case.
-The same change was applied to ``MTCS.prepare_for_onsky()`` and ``MTCS.prepare_for_flatfield()`` in ``ts_observatory_control``.

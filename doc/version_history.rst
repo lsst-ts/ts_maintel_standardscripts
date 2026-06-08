@@ -8,6 +8,27 @@ Version History
 
 .. towncrier release notes start
 
+v0.9.0 (2026-06-08)
+===================
+
+New Features
+------------
+
+- Updated ``m1m3/enable_m1m3_slew_controller_flags.py`` so the ``default`` slew flag configuration now enables all M1M3 slew controller flags. (`RSO-548 <https://rubinobs.atlassian.net//browse/RSO-548>`_)
+- Updated ``maintel/ensure_onsky_readiness.py`` to ensure M1M3 is not in engineering mode at the end of the script execution. (`RSO-548 <https://rubinobs.atlassian.net//browse/RSO-548>`_)
+- Updated ``maintel/ensure_onsky_readiness.py`` to assert that all M1M3 slew controller flags are enabled after raising the mirror, since slew controller flags are now automatically enabled at the CSC level when the mirror is raised.
+  If any flag is not enabled, a warning is collected and reported at the end of the script.
+  The ``slew_flags`` and ``enable_flags`` configuration properties are now deprecated (RSO-592) and will be removed in a future release. (`RSO-548 <https://rubinobs.atlassian.net//browse/RSO-548>`_)
+- Added a ``homing_attempts`` configuration parameter to ``maintel/ensure_onsky_readiness.py``, ``maintel/prepare_for/onsky.py``, and ``maintel/prepare_for/flat.py`` scripts.
+  It controls how many times the scripts will attempt to home the mount before failing (``default: 10``). (`RSO-548 <https://rubinobs.atlassian.net//browse/RSO-548>`_)
+- Updated ``maintel/ensure_onsky_readiness.py``, ``maintel/prepare_for/onsky.py``, and ``maintel/prepare_for/flat.py`` to check that ``MTM1M3TS`` is not in engineering mode, preventing EAS/PID from being blocked from commanding the glycol valve position. (`RSO-548 <https://rubinobs.atlassian.net//browse/RSO-548>`_)
+- Replaced explicit force balance system enable step with an assertion check in ``maintel/ensure_onsky_readiness.py``.
+  The force balance system is now automatically enabled at the CSC level when the mirror is raised, and the script verifies this is the case.
+  The same change was applied to ``MTCS.prepare_for_onsky()`` and ``MTCS.prepare_for_flatfield()`` in ``ts_observatory_control``. (`RSO-548 <https://rubinobs.atlassian.net//browse/RSO-548>`_)
+- Updated ``maintel/ensure_onsky_readiness.py`` to assert that the M1M3 force balance system is enabled after raising the mirror, since force balance is now automatically enabled at the CSC level when the mirror is raised.
+  The script raises an error if force balance is not enabled. (`RSO-548 <https://rubinobs.atlassian.net//browse/RSO-548>`_)
+
+
 v0.8.0 (2026-06-03)
 ===================
 

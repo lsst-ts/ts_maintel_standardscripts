@@ -1,2 +1,0 @@
-Added a ``homing_attempts`` configuration parameter to ``maintel/ensure_onsky_readiness.py``, ``maintel/prepare_for/onsky.py``, and ``maintel/prepare_for/flat.py`` scripts.
-It controls how many times the scripts will attempt to home the mount before failing (``default: 10``).

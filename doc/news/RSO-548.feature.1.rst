@@ -1,1 +1,0 @@
-Updated ``maintel/ensure_onsky_readiness.py``, ``maintel/prepare_for/onsky.py``, and ``maintel/prepare_for/flat.py`` to check that ``MTM1M3TS`` is not in engineering mode, preventing EAS/PID from being blocked from commanding the glycol valve position.
