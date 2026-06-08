@@ -40,16 +40,18 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
     2. Ensure that the OCPS:101 CSC is enabled.
     3. Assert that the dome shutters are open.
     4. Ensure the M2 force balance system is enabled.
-    5. Ensure MTM1M3 is raised at a safe elevation.
-    6. Ensure the M1M3 Force Balance System is enabled.
-    7. Ensure the MTMount is homed.
-    8. Ensure M1M3 Slew Controller Flags are set as required.
+    5. Ensure MTM1M3 is raised at a safe elevation (with retry logic).
+    6. Assert M1M3 force balance system is enabled.
+    7. Assert M1M3 slew controller flags are enabled (warning if not).
+    8. Ensure the MTMount is homed.
     9. Ensure the M1M3 Mirror Covers are open.
     10. Ensure Camera Cable Wrap (CCW) following is enabled.
     11. Ensure Compensation Mode is enabled for both Hexapods.
     12. Ensure the Dome is unparked.
     13. Ensure Dome Following Mode is enabled.
     14. Assert that the AOS (Active Optics System) Closed Loop is enabled.
+    15. Ensure M1M3 is not in engineering mode.
+    16. Assert that the MTM1M3TS is not in engineering mode.
 
     At each step, the script logs progress, checks system states, and takes
     corrective actions or raises warnings/errors as appropriate. If dome and
@@ -69,10 +71,12 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         self.mtcs = None
         self.lsstcam = None
         self.ocps = None
+        self.mtm1m3ts = None
         self.assertion_errors = []
 
         self.tel_raise_m1m3_min_el = 20.0
         self.home_both_axes_timeout = 300.0
+        self.homing_attempts = 10
 
     async def configure_tcs(self) -> None:
         """Initialize MTCS if not already initialized."""
@@ -107,20 +111,31 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         else:
             self.log.debug("OCPS already initialized.")
 
+    async def configure_mtm1m3ts(self):
+        """Configure MTM1M3TS remote if not already configured."""
+        if self.mtm1m3ts is None:
+            self.log.debug("Creating MTM1M3TS remote instance.")
+            self.mtm1m3ts = salobj.Remote(self.domain, "MTM1M3TS")
+            await self.mtm1m3ts.start_task
+        else:
+            self.log.debug("MTM1M3TS already initialized.")
+
     @classmethod
     def get_schema(cls):
         schema_yaml = """
         $schema: http://json-schema.org/draft-07/schema#
-        $id: https://github.com/lsst-ts/ts_maintel_standardscripts/EnsureTMAReadiness/v1
-        title: EnsureTMAReadiness v1
-        description: Configuration for EnsureTMAReadiness script.
+        $id: https://github.com/lsst-ts/ts_maintel_standardscripts/ensure_onsky_readiness.yaml
+        title: EnsureOnSkyReadiness v1
+        description: Configuration for EnsureOnSkyReadiness script.
         type: object
         properties:
           slew_flags:
             description: >-
-              List of M1M3 slew controller flags to change or "default" for a
-              predefined combination of flags. If not provided, it will be set to
-              "default".
+              (Deprecated - RSO-592) List of M1M3 slew controller flags to change
+              or "default" for a predefined combination of flags. This property is
+              deprecated and will be removed in a future release. The slew controller
+              flags are now automatically enabled at the CSC level when the mirror
+              is raised.
             oneOf:
               - type: string
                 enum: ["default"]
@@ -131,15 +146,21 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             default: "default"
           enable_flags:
             description: >-
-              Corresponding booleans to enable or disable each slew flag. It will be
-              [True, True, True, False] if the slew_flag is set as "default".
+              (Deprecated - RSO-592) Corresponding booleans to enable or disable
+              each slew flag. This property is deprecated and will be removed in
+              a future release. The slew controller flags are now automatically
+              enabled at the CSC level when the mirror is raised.
             type: array
             items:
               type: boolean
+          homing_attempts:
+            description: Number of attempts to home both axes.
+            type: integer
+            default: 10
+            minimum: 1
+        additionalProperties: false
         """
-        schema_dict = yaml.safe_load(schema_yaml)
-
-        return schema_dict
+        return yaml.safe_load(schema_yaml)
 
     async def configure(self, config):
         """Configure the script.
@@ -151,62 +172,26 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         """
         self.config = config
 
-        if self.config.slew_flags == "default":
-            self.config.slew_flags, self.config.enable_flags = (
-                self._get_default_m1m3_slew_flags()
-            )
-        else:
-            if len(self.config.slew_flags) != len(self.config.enable_flags):
-                raise ValueError(
-                    "slew_flags and enable_flags arrays must have the same length."
-                )
-            # Convert flag names to enumeration values and
-            # store them back in config
-            self.config.slew_flags = self._convert_m1m3_slew_flag_names_to_enum(
-                self.config.slew_flags
+        if hasattr(config, "slew_flags") or hasattr(config, "enable_flags"):
+            self.log.warning(
+                "The 'slew_flags' and 'enable_flags' configuration properties are "
+                "deprecated (RSO-592) and will be removed in a future release. "
+                "The slew controller flags are now automatically enabled at the CSC "
+                "level when the mirror is raised.",
+                stacklevel=2,
+                exc_info=DeprecationWarning(),
             )
 
         await self.configure_tcs()
         await self.configure_camera()
         await self.configure_ocps()
+        await self.configure_mtm1m3ts()
+
+        if hasattr(config, "homing_attempts"):
+            self.homing_attempts = config.homing_attempts
 
     def set_metadata(self, metadata):
         metadata.duration = 300
-
-    def _get_default_m1m3_slew_flags(self):
-        """Return the default M1M3 slew flags and enables.
-
-        Returns
-        -------
-        tuple of (list of MTM1M3.SetSlewControllerSettings, list of bool)
-            Default M1M3 slew flags and enables.
-        """
-        default_flags = [
-            MTM1M3.SetSlewControllerSettings.ACCELERATIONFORCES,
-            MTM1M3.SetSlewControllerSettings.BALANCEFORCES,
-            MTM1M3.SetSlewControllerSettings.VELOCITYFORCES,
-            MTM1M3.SetSlewControllerSettings.BOOSTERVALVES,
-        ]
-        default_enables = [True, True, True, False]
-
-        return default_flags, default_enables
-
-    @staticmethod
-    def _convert_m1m3_slew_flag_names_to_enum(flag_names):
-        """Convert flag names (strings) to MTM1M3.SetSlewControllerSettings
-        enum values.
-
-        Parameters
-        ----------
-        flag_names : list of str
-            List of flag names as strings.
-
-        Returns
-        -------
-        list of MTM1M3.SetSlewControllerSettings
-            List of enumeration values corresponding to the flag names.
-        """
-        return [MTM1M3.SetSlewControllerSettings[name] for name in flag_names]
 
     async def _is_mtmount_homed(self) -> bool:
         """
@@ -430,39 +415,46 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         if not is_homed:
             self.log.info("Homing both axes of the telescope.")
             await self.checkpoint("Homing both axes.")
-            async with self.mtcs.m1m3_booster_valve():
-                await self.mtcs.rem.mtmount.cmd_homeBothAxes.start(
-                    timeout=self.home_both_axes_timeout
-                )
+            await self.mtcs.home_both_axes(homing_attempts=self.homing_attempts)
         else:
             self.log.info("Telescope is already homed. Nothing to do.")
 
-    async def ensure_m1m3_balance_system_enabled(self):
-        """Ensure the M1M3 force balance system is enabled.
+    async def assert_m1m3_force_balance_enabled(self) -> None:
+        """Assert that the M1M3 force balance system is enabled.
 
-        This method calls MTCS.enable_m1m3_balance_system(), which:
-        - Checks the current state of the M1M3 force balance system
-          (hardpoint corrections).
-        - If the system is not enabled, sends the command to enable
-          hardpoint corrections.
-        - Waits for the force balance system to reach the enabled state,
-          monitoring status.
-        - Handles command timeouts and logs progress.
-        - Raises RuntimeError if the system fails to reach the enabled state.
+        This method checks the current state of the M1M3 force balance system
+        and raises an error if it is not enabled. The force balance system
+        should be automatically enabled when the mirror is raised.
 
-        If the force balance system is already enabled, no action is taken.
+        Raises
+        ------
+        RuntimeError
+            If the force balance system is not enabled.
         """
-        self.log.info("Ensuring M1M3 force balance system is enabled.")
+        self.log.info("Assert that M1M3 force balance system is enabled.")
+        await self.mtcs.assert_m1m3_force_balance_system_enabled()
 
-        # Ensure M1M3 in engineering mode
-        await self.mtcs.enter_m1m3_engineering_mode()
-        await self.mtcs.enable_m1m3_balance_system()
+    async def assert_m1m3_slew_controller_flags(self) -> None:
+        """Assert that all M1M3 slew controller flags are enabled.
 
-    async def ensure_m1m3_slew_controller_flags_enabled(self):
-        """Ensure M1M3 slew controller flags are enabled."""
-        self.log.info("Ensuring M1M3 slew controller flags are correctly enabled.")
-        for flag, enable in zip(self.config.slew_flags, self.config.enable_flags):
-            await self.mtcs.set_m1m3_slew_controller_settings(flag, enable)
+        This method checks the current state of the M1M3 slew controller
+        settings and collects warnings for any flags that are not enabled.
+        The warnings are added to assertion_errors to be reported at the
+        end of the script.
+        """
+        self.log.info("Assert that M1M3 slew controller flags are enabled.")
+
+        try:
+            disabled_flags = await self.mtcs.assert_m1m3_slew_controller_settings()
+            if disabled_flags:
+                raise RuntimeError(
+                    "Some M1M3 slew controller flags are not enabled.\n"
+                    f"Disabled flags: {', '.join(disabled_flags)}\n"
+                    "This may affect slew performance."
+                )
+        except Exception as e:
+            self.log.warning(f"M1M3 slew controller flags assertion failed: {e}")
+            self.assertion_errors.append(e)
 
     async def ensure_m1m3_cover_opened(self):
         """Ensure the mirror covers are opened.
@@ -559,6 +551,45 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             self.log.warning(f"AOS closed loop assertion failed: {e}")
             self.assertion_errors.append(e)
 
+    async def assert_mtm1m3ts_not_in_engineering_mode(self) -> None:
+        """Assert that MTM1M3TS is not in engineering mode.
+
+        This method checks whether the MTM1M3TS CSC is enabled and not in
+        engineering mode. If the CSC is not enabled or is in engineering mode,
+        the script will raise an error.
+
+        Raises
+        ------
+        RuntimeError
+            If MTM1M3TS is not enabled or is in engineering mode.
+        """
+        self.log.info("Assert that MTM1M3TS is not in engineering mode.")
+
+        summary_state = (
+            await self.mtm1m3ts.evt_summaryState.aget(timeout=self.mtcs.fast_timeout)
+        ).summaryState
+
+        current_state = salobj.State(summary_state)
+
+        if current_state != salobj.State.ENABLED:
+            raise RuntimeError(
+                f"MTM1M3TS is not enabled (current state: {current_state!r}).\n"
+                "Please check the MTM1M3TS CSC and enable it before proceeding."
+            )
+
+        self.mtm1m3ts.evt_engineeringMode.flush()
+        engineering_mode_evt = await self.mtm1m3ts.evt_engineeringMode.aget(
+            timeout=self.mtcs.fast_timeout
+        )
+
+        if engineering_mode_evt.engineeringMode:
+            raise RuntimeError(
+                "MTM1M3TS is in engineering mode.\n"
+                "This prevents EAS/PID from commanding the glycol valve position.\n"
+                "Please disable engineering mode on MTM1M3TS before on-sky operations.\n"
+                "Check the troubleshooting documentation for more information."
+            )
+
     async def run(self):
         """Run the script to ensure on-sky readiness."""
 
@@ -580,14 +611,14 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         await self.checkpoint("Ensure MTM1M3 is raised at safe elevation.")
         await self.ensure_m1m3_raised_at_safe_elevation()
 
-        await self.checkpoint("Ensure M1M3 Force Balance System is enabled.")
-        await self.ensure_m1m3_balance_system_enabled()
+        await self.checkpoint("Assert M1M3 Force Balance System is enabled.")
+        await self.assert_m1m3_force_balance_enabled()
+
+        await self.checkpoint("Assert M1M3 Slew Controller Flags are enabled.")
+        await self.assert_m1m3_slew_controller_flags()
 
         await self.checkpoint("Ensure MTMount is homed.")
         await self.ensure_mtmount_homed()
-
-        await self.checkpoint("Ensure M1M3 Slew Controller Flags are enabled.")
-        await self.ensure_m1m3_slew_controller_flags_enabled()
 
         await self.checkpoint("Ensure M1M3 Mirror Covers are opened.")
         await self.ensure_m1m3_cover_opened()
@@ -606,6 +637,12 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
 
         await self.checkpoint("Assert that AOS Closed Loop is enabled.")
         await self.assert_aos_closed_loop_enabled()
+
+        await self.checkpoint("Ensure M1M3 is not in engineering mode.")
+        await self.mtcs.ensure_m1m3_not_in_engineering_mode()
+
+        await self.checkpoint("Assert that MTM1M3TS is not in engineering mode.")
+        await self.assert_mtm1m3ts_not_in_engineering_mode()
 
         if self.assertion_errors:
             error_messages = "\n\n".join(str(e) for e in self.assertion_errors)

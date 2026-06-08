@@ -21,8 +21,9 @@
 
 import logging
 import unittest
+from unittest import mock
 
-from lsst.ts import standardscripts
+from lsst.ts import salobj, standardscripts
 from lsst.ts.maintel.standardscripts.prepare_for import PrepareForFlat
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
@@ -44,6 +45,19 @@ class TestPrepareForFlat(
             domain=self.script.domain,
             log=self.script.log,
             intended_usage=LSSTCamUsages.DryTest,
+        )
+
+        # Mock MTM1M3TS remote
+        self.script.mtm1m3ts = mock.Mock()
+        self.script.mtm1m3ts.start_task = mock.AsyncMock()
+        self.script.mtm1m3ts.evt_summaryState = mock.Mock()
+        self.script.mtm1m3ts.evt_summaryState.aget = mock.AsyncMock(
+            return_value=mock.Mock(summaryState=salobj.State.ENABLED)
+        )
+        self.script.mtm1m3ts.evt_engineeringMode = mock.Mock()
+        self.script.mtm1m3ts.evt_engineeringMode.flush = mock.Mock()
+        self.script.mtm1m3ts.evt_engineeringMode.aget = mock.AsyncMock(
+            return_value=mock.Mock(engineeringMode=False)
         )
 
         return (self.script,)
@@ -79,3 +93,5 @@ class TestPrepareForFlat(
             # Verify the methods were called
             self.script.lsstcam.assert_all_enabled.assert_called_once()
             self.script.mtcs.prepare_for_flatfield.assert_called_once()
+            self.script.mtm1m3ts.evt_summaryState.aget.assert_awaited_once()
+            self.script.mtm1m3ts.evt_engineeringMode.aget.assert_awaited_once()

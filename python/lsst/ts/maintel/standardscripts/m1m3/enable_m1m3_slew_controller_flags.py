@@ -86,7 +86,7 @@ class EnableM1M3SlewControllerFlags(BaseBlockScript):
           enable:
             description: >-
               Corresponding booleans to enable or disable each flag. It will be
-              [True, True, False, True] if the slew_flag is "default".
+              [True, True, True, True] if the slew_flag is "default".
             type: array
             items:
               type: boolean
@@ -126,7 +126,7 @@ class EnableM1M3SlewControllerFlags(BaseBlockScript):
             MTM1M3.SetSlewControllerSettings.VELOCITYFORCES,
             MTM1M3.SetSlewControllerSettings.BOOSTERVALVES,
         ]
-        default_enables = [True, True, False, True]
+        default_enables = [True, True, True, True]
 
         return default_flags, default_enables
 
