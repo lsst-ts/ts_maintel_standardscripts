@@ -1,0 +1,3 @@
+Updated ``maintel/ensure_onsky_readiness.py`` to assert that all M1M3 slew controller flags are enabled after raising the mirror, since slew controller flags are now automatically enabled at the CSC level when the mirror is raised.
+If any flag is not enabled, a warning is collected and reported at the end of the script.
+The ``slew_flags`` and ``enable_flags`` configuration properties are now deprecated (RSO-592) and will be removed in a future release.

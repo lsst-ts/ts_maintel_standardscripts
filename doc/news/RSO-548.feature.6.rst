@@ -1,0 +1,1 @@
+Updated ``maintel/ensure_onsky_readiness.py`` to ensure M1M3 is not in engineering mode at the end of the script execution.
