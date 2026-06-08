@@ -1,1 +1,0 @@
-Updated ``m1m3/enable_m1m3_slew_controller_flags.py`` so the ``default`` slew flag configuration now enables all M1M3 slew controller flags.
