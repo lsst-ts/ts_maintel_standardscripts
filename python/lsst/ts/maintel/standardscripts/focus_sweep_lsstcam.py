@@ -83,8 +83,7 @@ class FocusSweepLSSTCam(BaseFocusSweep):
     @classmethod
     def get_schema(cls) -> dict:
         schema_dict = super().get_schema()
-        additional_properties = yaml.safe_load(
-            """
+        additional_properties = yaml.safe_load("""
             sim:
                 description: Is LSSTCam in simulation mode? This mode is used for tests.
                 type: boolean
@@ -97,8 +96,7 @@ class FocusSweepLSSTCam(BaseFocusSweep):
                     - M2
                 default: Camera
 
-        """
-        )
+        """)
         schema_dict["properties"].update(additional_properties)
         return schema_dict
 
