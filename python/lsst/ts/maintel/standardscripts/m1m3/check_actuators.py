@@ -23,20 +23,40 @@ __all__ = ["CheckActuators"]
 
 
 import asyncio
+import io
+import os
 import time
 
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
 import yaml
+from astropy.time import Time, TimeDelta
+
+try:
+    from lsst_efd_client import EfdClient
+except ImportError:
+    import warnings
+
+    warnings.warn("Could not import lsst_efd_client library.")
 
 try:
     from lsst.ts.xml.tables.m1m3 import FATable
 except ImportError:
     from lsst.ts.criopy.M1M3FATable import FATABLE as FATable
 
+from lsst.ts import utils
 from lsst.ts.observatory.control.maintel.mtcs import MTCS
 from lsst.ts.standardscripts.base_block_script import BaseBlockScript
+from lsst.ts.standardscripts.utils import get_s3_bucket
 from lsst.ts.xml.enums.MTM1M3 import BumpTest, DetailedStates
 from lsst.ts.xml.enums.Script import ScriptState
 from lsst.ts.xml.tables.m1m3 import force_actuator_from_id
+
+EFD_NAMES = dict(
+    tucson="tucson_teststand_efd",
+    base="base_efd",
+    summit="summit_efd",
+)
 
 
 class CheckActuators(BaseBlockScript):
@@ -371,6 +391,10 @@ class CheckActuators(BaseBlockScript):
 
         await self.checkpoint("All tasks completed; collecting results.")
 
+        # Get bump test status after running
+        status = await self.mtcs.rem.mtm1m3.evt_forceActuatorBumpTestStatus.aget(
+            timeout=self.mtcs.fast_timeout
+        )
         for i, actuator_id in enumerate(self.actuators_to_test):
             actuator_type = force_actuator_from_id(actuator_id)
             primary_index = actuator_type.index
@@ -405,12 +429,25 @@ class CheckActuators(BaseBlockScript):
             )
 
             if primary_failure_type is not None or secondary_failure_type is not None:
+                primary_timestamp = (
+                    status.primaryTestTimestamps[primary_index]
+                    if primary_index is not None
+                    else None
+                )
+                secondary_timestamp = (
+                    status.secondaryTestTimestamps[secondary_index]
+                    if secondary_index is not None
+                    else None
+                )
                 self.failures[actuator_id] = {
                     "type": actuator_type.actuator_type.name,
                     "primary_index": primary_index,
                     "secondary_index": secondary_index,
                     "primary_failure": primary_failure_type,
                     "secondary_failure": secondary_failure_type,
+                    "primary_timestamp": primary_timestamp,
+                    "secondary_timestamp": secondary_timestamp,
+                    "orientation": actuator_type.orientation.name,
                 }
 
         end_time = time.monotonic()
@@ -427,6 +464,10 @@ class CheckActuators(BaseBlockScript):
         else:
             # Collect the failed actuator IDs for the header
             failed_actuators_id = list(self.failures.keys())
+            for actuator_id, failed_actuator in self.failures.items():
+                url = await self.plot_actuator_force(failed_actuator)
+                failed_actuator["primary_plot_url"] = url["primary"]
+                failed_actuator["secondary_plot_url"] = url["secondary"]
 
             # Create formatted output for failures
             failure_details = "\n".join(
@@ -434,7 +475,9 @@ class CheckActuators(BaseBlockScript):
                 f"Primary Index {failure['primary_index']}, Secondary Index "
                 f"{failure['secondary_index']}, Primary Failure "
                 f"{failure['primary_failure']}, Secondary Failure "
-                f"{failure['secondary_failure']}"
+                f"{failure['secondary_failure']},\n"
+                f"Primary Plot URL {failure['primary_plot_url']},\n"
+                f"Secondry Plot URL {failure['secondary_plot_url']}"
                 for actuator_id, failure in self.failures.items()
             )
 
@@ -446,6 +489,175 @@ class CheckActuators(BaseBlockScript):
 
             self.log.error(error_message)
             raise RuntimeError(error_message)
+
+    async def plot_actuator_force(self, failed_actuator) -> dict:
+        client = await self.get_efd_client()
+        url = {"primary": None, "secondary": None}
+
+        if failed_actuator["primary_failure"]:
+            direction = "z"
+            actuator_id = failed_actuator["primary_index"]
+            end_time = failed_actuator["primary_timestamp"]
+            applied_forces, measured_forces = await self.get_forces_data_from_efd(
+                client, "primary", actuator_id, end_time
+            )
+            self.log.info(
+                f"Plotting applied vs measured {direction} forces for actuator {actuator_id}"
+            )
+            url["primary"] = await self.plot_and_save(
+                actuator_id, direction, applied_forces, measured_forces
+            )
+
+        if failed_actuator["secondary_failure"]:
+            actuator_id = failed_actuator["secondary_index"]
+            if "Y_" in failed_actuator["orientation"]:
+                direction = "y"
+            elif "X_" in failed_actuator["orientation"]:
+                direction = "x"
+            end_time = failed_actuator["secondary_timestamp"]
+            applied_forces, measured_forces = await self.get_forces_data_from_efd(
+                client, "secondary", actuator_id, end_time
+            )
+            self.log.info(
+                f"Plotting applied vs measured {direction} forces for actuator {actuator_id}"
+            )
+            url["secondary"] = await self.plot_and_save(
+                actuator_id, direction, applied_forces, measured_forces
+            )
+
+        return url
+
+    async def get_efd_client(self) -> str:
+        """Get the EFD name.
+        Returns
+        -------
+        EfdClient
+            Client instance to query the EFD.
+        Raises
+        ------
+        RuntimeError
+            Wrong EFD name
+        """
+        site = os.environ.get("LSST_SITE")
+        if site is None or site not in EFD_NAMES:
+            message = (
+                "LSST_SITE environment variable not defined"
+                if site is None
+                else (f"No image server url for {site=}.")
+            )
+            raise RuntimeError("Wrong EFD name: " + message)
+        return EfdClient(EFD_NAMES[site])
+
+    async def get_forces_data_from_efd(self, client, test_type, actuator_id, end_time):
+        """Get the timestamps and forces for a given event.
+        Parameters
+        ----------
+        client : EfdClient
+            Connected EFD client.
+        test_type : `str`
+            Primary or secondary test.
+        actuator_id : `int`
+            Actuator ID.
+        end_time : `float`
+            Finish time for bump test according to forceActuatorBumpTestStatus.
+
+        Returns
+        -------
+        applied_forces : `list`
+            List of applied forces in the specified direction.
+        measured_forces : `list`
+            List of measured forces in the specified direction.
+
+        Raises
+        ------
+        RuntimeError
+            Error querying data.
+        """
+        end_time = Time(end_time, format="unix")
+        start_time = end_time - TimeDelta(2 * self.time_one_bump, format="sec")
+        query_field = f"{test_type}CylinderForces{actuator_id}"
+        try:
+            applied_forces = await client.select_time_series(
+                topic_name="lsst.sal.MTM1M3.appliedCylinderForces",
+                fields=query_field,
+                end=end_time,
+                start=start_time,
+            )
+        except Exception:
+            raise RuntimeError(
+                f"Error querying for {query_field} from 'lsst.sal.MTM1M3.appliedCylinderForces'"
+                f" between {start_time} and {end_time}."
+            )
+
+        try:
+            measured_forces = await client.select_time_series(
+                topic_name="lsst.sal.MTM1M3.forceActuatorData",
+                fields=query_field,
+                end=end_time,
+                start=start_time,
+            )
+        except Exception:
+            raise RuntimeError(
+                f"Error querying for {query_field} from 'lsst.sal.MTM1M3.forceActuatorData'"
+                f" between {start_time} and {end_time}."
+            )
+
+        return applied_forces, measured_forces
+
+    async def plot_and_save(
+        self, actuator_id, direction, applied_forces, measured_forces
+    ) -> str:
+        """Save plot to the LFA."""
+        applied_col = applied_forces.columns[0]
+        measured_col = measured_forces.columns[0]
+        fig, ax = plt.subplots(1, 1)
+        ax.plot(
+            applied_forces.index,
+            applied_forces[applied_col],
+            label=f"FA {actuator_id} {direction} Applied",
+        )
+        ax.plot(
+            measured_forces.index,
+            measured_forces[measured_col],
+            label=f"FA {actuator_id} {direction} Measured",
+        )
+        ax.set_xlabel("Time (TAI)")
+        ax.set_ylabel("Force (N)")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+        ax.xaxis.set_major_locator(mdates.SecondLocator(interval=5))
+
+        self.log.info("Saving actuator force plot to LFA.")
+
+        plot_output = io.BytesIO()
+        fig.savefig(plot_output)
+        plot_output.seek(0)
+
+        s3bucket = get_s3_bucket()
+
+        key = s3bucket.make_key(
+            salname=self.salinfo.name,
+            salindexname=self.salinfo.index,
+            generator=f"actuator_id_{actuator_id}_{direction}",
+            date=utils.astropy_time_from_tai_unix(utils.current_tai()),
+            other=self.obs_id,
+            suffix=".png",
+        )
+
+        await s3bucket.upload(fileobj=plot_output, key=key)
+
+        url = f"{s3bucket.service_resource.meta.client.meta.endpoint_url}/{s3bucket.name}/{key}"
+
+        await self.evt_largeFileObjectAvailable.set_write(
+            id=self.obs_id,
+            url=url,
+            generator=f"{self.salinfo.name}:{self.salinfo.index}",
+            mimeType="PNG",
+            version=1,
+        )
+
+        return url
 
     async def cleanup(self):
         if self.state.state != ScriptState.ENDING:
