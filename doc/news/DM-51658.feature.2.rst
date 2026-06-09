@@ -1,0 +1,8 @@
+Added ``daytime_checkout/lsstcam_fes_exercise.py`` to automate daily LSSTCam Filter Exchange System (FES) exercises.
+It performs the following steps:
+ * it checks that MTCS components are in appropriate states for safe filter changes.
+ * it logs the current and available filters for debugging and verification.
+ * it selects an intermediate physical filter distinct from both the current and final filters if possible.
+ * it commands the intermediate filter, waits 120 seconds, and then commands the final filter.
+ * if no distinct intermediate physical filter is available, it logs a warning and performs the minimum necessary to reach the final filter.
+ * it always leaves the camera in the requested final filter if it is available.
