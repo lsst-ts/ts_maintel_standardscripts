@@ -1,0 +1,1 @@
+Implement SAL Scripts to operate the dome louvers to allow opening and closing.
