@@ -25,6 +25,7 @@ import yaml
 from lsst.ts import salobj
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.xml.enums.Script import ScriptState
 
 BAND_TO_FILTER = {
     "u": "u_24",
@@ -65,10 +66,13 @@ class PrepareForOnSky(salobj.BaseScript):
         self.lsstcam = None
         self.mtm1m3ts = None
         self.homing_attempts = 10
+        self.target_az = None
+        self.target_el = None
+        self.target_rot = None
 
     @classmethod
     def get_schema(cls):
-        schema_yaml = """
+        schema_yaml = f"""
             $schema: http://json-schema.org/draft-07/schema#
             $id: https://github.com/lsst-ts/ts_maintel_standardscripts/prepare_for/onsky.yaml
             title: PrepareForOnSky v1
@@ -112,6 +116,34 @@ class PrepareForOnSky(salobj.BaseScript):
                     type: integer
                     default: 10
                     minimum: 1
+                target_az:
+                    description: >-
+                        Optional target azimuth for both the dome and telescope,
+                        in degrees. If omitted, MTCS uses its default on-sky
+                        azimuth.
+                    anyOf:
+                        - type: number
+                        - type: "null"
+                    default: null
+                target_el:
+                    description: >-
+                        Optional target telescope elevation in degrees. If omitted,
+                        MTCS uses its default on-sky elevation.
+                    anyOf:
+                        - type: number
+                          minimum: {MTCS.tel_operate_mirror_covers_el}
+                          maximum: {MTCS.tel_max_el}
+                        - type: "null"
+                    default: null
+                target_rot:
+                    description: >-
+                        Optional target rotator angle in mount physical
+                        coordinates, in degrees. If omitted, MTCS uses its
+                        default on-sky rotator angle.
+                    anyOf:
+                        - type: number
+                        - type: "null"
+                    default: null
             additionalProperties: false
         """
         return yaml.safe_load(schema_yaml)
@@ -188,6 +220,10 @@ class PrepareForOnSky(salobj.BaseScript):
         if hasattr(config, "homing_attempts"):
             self.homing_attempts = config.homing_attempts
 
+        self.target_az = getattr(config, "target_az", None)
+        self.target_el = getattr(config, "target_el", None)
+        self.target_rot = getattr(config, "target_rot", None)
+
     def set_metadata(self, metadata):
         metadata.duration = 600.0 + self.lsstcam.filter_change_timeout
 
@@ -238,7 +274,12 @@ class PrepareForOnSky(salobj.BaseScript):
             message="All MTCS components need to be enabled to prepare for on-sky observations."
         )
 
-        await self.mtcs.prepare_for_onsky(homing_attempts=self.homing_attempts)
+        await self.mtcs.prepare_for_onsky(
+            homing_attempts=self.homing_attempts,
+            target_az=self.target_az,
+            target_el=self.target_el,
+            target_rot=self.target_rot,
+        )
 
         await self.checkpoint(f"Setting up LSSTCam with filter '{self.filter}'.")
 
@@ -252,3 +293,12 @@ class PrepareForOnSky(salobj.BaseScript):
         await self.assert_mtm1m3ts_not_in_engineering_mode()
 
         self.log.info("Prepare for on-sky operations completed successfully.")
+
+    async def cleanup(self) -> None:
+        if self.state.state == ScriptState.ENDING:
+            return
+
+        try:
+            await self.mtcs.stop_tracking()
+        except Exception:
+            self.log.exception("Unable to stop tracking during cleanup.")
