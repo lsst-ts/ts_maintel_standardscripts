@@ -27,6 +27,7 @@ from lsst.ts import salobj, standardscripts
 from lsst.ts.maintel.standardscripts.prepare_for import PrepareForOnSky
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.xml.enums.Script import ScriptState
 
 logging.basicConfig()
 
@@ -67,6 +68,33 @@ class TestPrepareForOnSky(
             await self.configure_script()
 
             assert self.script.filter == "i_39"
+            assert self.script.target_az == PrepareForOnSky.DEFAULT_TARGET_AZ
+            assert self.script.target_el == PrepareForOnSky.DEFAULT_TARGET_EL
+            assert self.script.target_rot == PrepareForOnSky.DEFAULT_TARGET_ROT
+
+    async def test_configure_target_position(self):
+        async with self.make_script():
+            await self.configure_script(
+                target_az=155.0,
+                target_el=65.0,
+                target_rot=5.0,
+            )
+
+            assert self.script.target_az == 155.0
+            assert self.script.target_el == 65.0
+            assert self.script.target_rot == 5.0
+
+    async def test_configure_invalid_target_el(self):
+        async with self.make_script():
+            with self.assertRaises(salobj.ExpectedError):
+                await self.configure_script(
+                    target_el=PrepareForOnSky.MIN_TARGET_EL - 1.0,
+                )
+
+            with self.assertRaises(salobj.ExpectedError):
+                await self.configure_script(
+                    target_el=PrepareForOnSky.MAX_TARGET_EL + 1.0,
+                )
 
     async def test_configure_filter_band(self):
         async with self.make_script():
@@ -131,8 +159,49 @@ class TestPrepareForOnSky(
             # Verify the methods were called
             self.script.mtcs.assert_all_enabled.assert_called_once()
             self.script.lsstcam.assert_all_enabled.assert_called_once()
-            self.script.mtcs.prepare_for_onsky.assert_called_once()
+            self.script.mtcs.prepare_for_onsky.assert_called_once_with(
+                homing_attempts=10,
+                target_az=PrepareForOnSky.DEFAULT_TARGET_AZ,
+                target_el=PrepareForOnSky.DEFAULT_TARGET_EL,
+                target_rot=PrepareForOnSky.DEFAULT_TARGET_ROT,
+            )
             self.script.lsstcam.setup_instrument.assert_called_once_with(filter="i_39")
+
+    async def test_run_with_target_position(self):
+        async with self.make_script():
+            await self.configure_script(
+                target_az=155.0,
+                target_el=65.0,
+                target_rot=5.0,
+            )
+
+            self.script.mtcs.assert_all_enabled = unittest.mock.AsyncMock()
+            self.script.lsstcam.assert_all_enabled = unittest.mock.AsyncMock()
+            self.script.mtcs.prepare_for_onsky = unittest.mock.AsyncMock()
+            self.script.lsstcam.setup_instrument = unittest.mock.AsyncMock()
+
+            await self.run_script()
+
+            self.script.mtcs.prepare_for_onsky.assert_called_once_with(
+                homing_attempts=10,
+                target_az=155.0,
+                target_el=65.0,
+                target_rot=5.0,
+            )
+
+    async def test_abnormal_cleanup_stops_tracking(self):
+        async with self.make_script():
+            await self.configure_script()
+
+            self.script.mtcs.assert_all_enabled = mock.AsyncMock()
+            self.script.mtcs.prepare_for_onsky = mock.AsyncMock(
+                side_effect=RuntimeError("Preparation failed.")
+            )
+            self.script.mtcs.stop_tracking = mock.AsyncMock()
+
+            await self.run_script(expected_final_state=ScriptState.FAILED)
+
+            self.script.mtcs.stop_tracking.assert_awaited_once_with()
 
     async def test_run_ignore_non_critical_components(self):
         async with self.make_script():
@@ -148,7 +217,12 @@ class TestPrepareForOnSky(
             # Verify the methods were called
             self.script.mtcs.assert_all_enabled.assert_called_once()
             self.script.lsstcam.assert_all_enabled.assert_called_once()
-            self.script.mtcs.prepare_for_onsky.assert_called_once()
+            self.script.mtcs.prepare_for_onsky.assert_called_once_with(
+                homing_attempts=10,
+                target_az=PrepareForOnSky.DEFAULT_TARGET_AZ,
+                target_el=PrepareForOnSky.DEFAULT_TARGET_EL,
+                target_rot=PrepareForOnSky.DEFAULT_TARGET_ROT,
+            )
             self.script.lsstcam.setup_instrument.assert_called_once_with(filter="i_39")
 
     async def test_run_mtm1m3ts_not_enabled(self):

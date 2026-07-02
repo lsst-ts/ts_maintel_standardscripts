@@ -25,6 +25,7 @@ import yaml
 from lsst.ts import salobj
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.xml.enums.Script import ScriptState
 
 BAND_TO_FILTER = {
     "u": "u_24",
@@ -56,6 +57,12 @@ class PrepareForOnSky(salobj.BaseScript):
     for on-sky operations.
     """
 
+    DEFAULT_TARGET_AZ = MTCS.DEFAULT_TEL_OPEN_AZ
+    DEFAULT_TARGET_EL = MTCS.DEFAULT_TEL_OPEN_EL
+    DEFAULT_TARGET_ROT = MTCS.DEFAULT_TEL_PARK_ROT
+    MIN_TARGET_EL = MTCS.DEFAULT_TEL_OPERATE_MIRROR_COVERS_EL
+    MAX_TARGET_EL = MTCS.DEFAULT_TEL_MAX_EL
+
     def __init__(self, index):
         super().__init__(index=index, descr="Run prepare for on-sky operations.")
 
@@ -65,10 +72,13 @@ class PrepareForOnSky(salobj.BaseScript):
         self.lsstcam = None
         self.mtm1m3ts = None
         self.homing_attempts = 10
+        self.target_az = self.DEFAULT_TARGET_AZ
+        self.target_el = self.DEFAULT_TARGET_EL
+        self.target_rot = self.DEFAULT_TARGET_ROT
 
     @classmethod
     def get_schema(cls):
-        schema_yaml = """
+        schema_yaml = f"""
             $schema: http://json-schema.org/draft-07/schema#
             $id: https://github.com/lsst-ts/ts_maintel_standardscripts/prepare_for/onsky.yaml
             title: PrepareForOnSky v1
@@ -112,6 +122,27 @@ class PrepareForOnSky(salobj.BaseScript):
                     type: integer
                     default: 10
                     minimum: 1
+                target_az:
+                    description: >-
+                        Target azimuth for both the dome and telescope, in
+                        degrees. If not provided, the default value is {cls.DEFAULT_TARGET_AZ}.
+                    type: number
+                    default: {cls.DEFAULT_TARGET_AZ}
+                target_el:
+                    description: >-
+                        Target telescope elevation, in degrees. Must be high
+                        enough for mirror cover operations. If not provided,
+                        the default value is {cls.DEFAULT_TARGET_EL}.
+                    type: number
+                    default: {cls.DEFAULT_TARGET_EL}
+                    minimum: {cls.MIN_TARGET_EL}
+                    maximum: {cls.MAX_TARGET_EL}
+                target_rot:
+                    description: >-
+                        Target rotator angle in mount physical coordinates, in
+                        degrees. If not provided, the default value is {cls.DEFAULT_TARGET_ROT}.
+                    type: number
+                    default: {cls.DEFAULT_TARGET_ROT}
             additionalProperties: false
         """
         return yaml.safe_load(schema_yaml)
@@ -188,6 +219,10 @@ class PrepareForOnSky(salobj.BaseScript):
         if hasattr(config, "homing_attempts"):
             self.homing_attempts = config.homing_attempts
 
+        self.target_az = getattr(config, "target_az", self.DEFAULT_TARGET_AZ)
+        self.target_el = getattr(config, "target_el", self.DEFAULT_TARGET_EL)
+        self.target_rot = getattr(config, "target_rot", self.DEFAULT_TARGET_ROT)
+
     def set_metadata(self, metadata):
         metadata.duration = 600.0 + self.lsstcam.filter_change_timeout
 
@@ -238,7 +273,12 @@ class PrepareForOnSky(salobj.BaseScript):
             message="All MTCS components need to be enabled to prepare for on-sky observations."
         )
 
-        await self.mtcs.prepare_for_onsky(homing_attempts=self.homing_attempts)
+        await self.mtcs.prepare_for_onsky(
+            homing_attempts=self.homing_attempts,
+            target_az=self.target_az,
+            target_el=self.target_el,
+            target_rot=self.target_rot,
+        )
 
         await self.checkpoint(f"Setting up LSSTCam with filter '{self.filter}'.")
 
@@ -252,3 +292,12 @@ class PrepareForOnSky(salobj.BaseScript):
         await self.assert_mtm1m3ts_not_in_engineering_mode()
 
         self.log.info("Prepare for on-sky operations completed successfully.")
+
+    async def cleanup(self) -> None:
+        if self.state.state == ScriptState.ENDING:
+            return
+
+        try:
+            await self.mtcs.stop_tracking()
+        except Exception:
+            self.log.exception("Unable to stop tracking during cleanup.")
