@@ -310,6 +310,7 @@ class Align(BaseBlockScript):
                 timeout=self.TIMEOUT_STD
             )
             self.mtcs.check.mtdome = False
+            self.mtcs.check.mtrotator = False
             await self.mtcs.point_azel(
                 az=azimuth.actualPosition + dazimuth,
                 el=elevation.actualPosition + delevation,
