@@ -289,14 +289,8 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
         """Take data."""
 
         for exptime in self.config.exp_times:
-            await self.wait_mtaos_idle()
-            await self.lsstcam.take_object(
-                exptime=exptime,
-                group_id=self.group_id,
-                reason=self.config.reason,
-                program=self.config.program,
-                note=self.note,
-            )
+            self.log.info(f"Instead of taking image sleep for {exptime}s.")
+            await asyncio.sleep(exptime)
 
     async def wait_mtaos_idle(self):
         self.mtcs.rem.mtaos.evt_closedLoopState.flush()
