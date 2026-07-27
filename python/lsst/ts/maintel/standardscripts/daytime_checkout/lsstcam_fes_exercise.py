@@ -40,7 +40,6 @@ BAND_TO_FILTER = {
 }
 
 SLEEP_BETWEEN_FILTER_CHANGES = 120  # seconds
-CRITICAL_MTCS_COMPONENTS = {"mtptg", "mtmount", "mtrotator"}
 
 
 class LsstCamFesExercise(salobj.BaseScript):
@@ -74,9 +73,10 @@ class LsstCamFesExercise(salobj.BaseScript):
     **Details**
 
     This script is intended for exercising the filter exchange system and
-    verifying filter motion. It ensures MTCS components required for safe
-    filter changes are enabled, handles the case where only one physical filter
-    is available, and leaves the camera in the requested final filter.
+    verifying filter motion. It requires MTCamera, MTPtg, and MTRotator to be
+    enabled. MTMount can be either enabled or disabled. The script handles the
+    case where only one physical filter is available and leaves the camera in
+    the requested final filter.
 
     **Examples**
 
@@ -110,7 +110,9 @@ class LsstCamFesExercise(salobj.BaseScript):
             $schema: http://json-schema.org/draft-07/schema#
             $id: https://github.com/lsst-ts/ts_maintel_standardscripts/daytime/lsstcam_fes_exercise.yaml
             title: LsstCamFesExercise v1
-            description: Configuration for the LSSTCam filter exercise script.
+            description: >-
+              Configuration for the LSSTCam filter exercise script. Note this operation requires
+              MTCamera, MTPtg, and MTRotator to be ENABLED. MTMount can be either ENABLED or DISABLED.
             type: object
             properties:
               final_filter:
@@ -132,14 +134,6 @@ class LsstCamFesExercise(salobj.BaseScript):
                   - "i_39"
                   - "z_20"
                   - "y_10"
-              ignore:
-                description: >-
-                  CSCs from the LSSTCam or MTCS groups to ignore in status checks.
-                  Critical MTCS components required for filter changes (mtptg,
-                  mtmount, mtrotator) will always be checked even if provided here.
-                type: array
-                items:
-                  type: string
             additionalProperties: false
         """
         return yaml.safe_load(schema_yaml)
@@ -188,22 +182,6 @@ class LsstCamFesExercise(salobj.BaseScript):
             )
             await self.lsstcam.start_task
 
-        if hasattr(config, "ignore"):
-            ignore_components = list(config.ignore)
-            filtered_ignore = []
-            for component in ignore_components:
-                if component in CRITICAL_MTCS_COMPONENTS:
-                    self.log.warning(
-                        f"Ignoring critical MTCS component '{component}' "
-                        "is not allowed; removing from ignore list."
-                    )
-                    continue
-                filtered_ignore.append(component)
-
-            if filtered_ignore:
-                self.mtcs.disable_checks_for_components(components=filtered_ignore)
-                self.lsstcam.disable_checks_for_components(components=filtered_ignore)
-
     async def run(self):
         await self.checkpoint("Checking LSSTCam setup.")
         await self.assert_feasibility()
@@ -213,8 +191,12 @@ class LsstCamFesExercise(salobj.BaseScript):
         await self.exercise_filters()
 
     async def assert_feasibility(self):
-        await self.mtcs.assert_all_enabled()
-        await self.lsstcam.assert_all_enabled()
+        self.log.info(
+            "Checking FES readiness: MTCamera, MTPtg, and MTRotator must be "
+            "ENABLED; MTMount can be either ENABLED or DISABLED."
+        )
+        await self._ensure_mtcs_ready()
+        await self._ensure_lsstcam_ready()
 
     async def log_setup_info(self):
         """Log current and available filters for debugging and verification."""
@@ -223,7 +205,7 @@ class LsstCamFesExercise(salobj.BaseScript):
         except Exception as e:
             raise RuntimeError("Could not determine current filter.") from e
 
-        self.log.info(f"Current filter in beam: {self.current_filter}")
+        self.log.info(f"Current filter in beam: {self.current_filter}.")
 
         try:
             self.available_filters = await self.lsstcam.get_available_filters()
@@ -234,7 +216,7 @@ class LsstCamFesExercise(salobj.BaseScript):
             self.available_filters
         )
 
-        self.log.info(f"Available filters: {self.available_filters}")
+        self.log.info(f"Available filters: {self.available_filters}.")
 
     async def exercise_filters(self):
         """Exercise the LSSTCam filter exchange system.
@@ -255,6 +237,7 @@ class LsstCamFesExercise(salobj.BaseScript):
             available.
         """
         await self._ensure_mtcs_ready()
+        await self._ensure_lsstcam_ready()
 
         if self.available_filters is None:
             raise RuntimeError(
@@ -298,14 +281,14 @@ class LsstCamFesExercise(salobj.BaseScript):
         intermediate_filter = random.choice(intermediate_candidates)
 
         await self.checkpoint(
-            f"Changing filter to intermediate filter: {intermediate_filter}"
+            f"Changing filter to intermediate filter: {intermediate_filter}."
         )
         await self._change_filter(intermediate_filter)
 
         await self.checkpoint("Waiting 120 seconds before setting up final filter.")
         await asyncio.sleep(SLEEP_BETWEEN_FILTER_CHANGES)
 
-        await self.checkpoint(f"Changing filter to final filter: {self.final_filter}")
+        await self.checkpoint(f"Changing filter to final filter: {self.final_filter}.")
         await self._change_filter(self.final_filter)
 
     async def _ensure_mtcs_ready(self):
@@ -313,25 +296,34 @@ class LsstCamFesExercise(salobj.BaseScript):
         if self.mtcs is None:
             raise RuntimeError("MTCS is unavailable; cannot exercise filters.")
 
-        await self._assert_state("mtptg", salobj.State.ENABLED)
-        await self._assert_state("mtrotator", salobj.State.ENABLED)
+        await self._assert_state(self.mtcs, "mtptg", salobj.State.ENABLED)
+        await self._assert_state(self.mtcs, "mtrotator", salobj.State.ENABLED)
 
         mtmount_acceptable_states = {salobj.State.ENABLED, salobj.State.DISABLED}
         mtmount_state = await self.mtcs.get_state("mtmount")
 
         if mtmount_state not in mtmount_acceptable_states:
             raise RuntimeError(
-                "MTMount must be DISABLED or ENABLED before exercising filters; "
-                f"current state is {mtmount_state.name}."
+                "MTMount can be either ENABLED or DISABLED before exercising filters. "
+                f"Current state is {mtmount_state.name}."
             )
 
-    async def _assert_state(self, component: str, required_state: salobj.State) -> None:
-        """Assert that a component is in the required state."""
-        current_state = await self.mtcs.get_state(component)
+    async def _ensure_lsstcam_ready(self):
+        """Ensure LSSTCam components are set for safe filter changes."""
+        if self.lsstcam is None:
+            raise RuntimeError("LSSTCam is unavailable; cannot exercise filters.")
+
+        await self._assert_state(self.lsstcam, "mtcamera", salobj.State.ENABLED)
+
+    async def _assert_state(
+        self, remote_group, component: str, required_state: salobj.State
+    ) -> None:
+        """Assert that a CSC in a remote group is in the required state."""
+        current_state = await remote_group.get_state(component)
         if current_state != required_state:
             raise RuntimeError(
-                f"{component} must be {required_state.name} before exercising filters; "
-                f"current state is {current_state.name}."
+                f"{component} must be {required_state.name} before exercising filters. "
+                f"Current state is {current_state.name}."
             )
 
     async def _change_filter(self, target_filter: str) -> None:

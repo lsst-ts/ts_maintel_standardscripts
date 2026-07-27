@@ -40,6 +40,9 @@ class TestLsstCamFesExercise(
             "mtrotator": salobj.State.ENABLED,
             "mtmount": salobj.State.ENABLED,
         }
+        self.lsstcam_states = {
+            "mtcamera": salobj.State.ENABLED,
+        }
         return super().setUp()
 
     async def basic_make_script(self, index):
@@ -55,16 +58,17 @@ class TestLsstCamFesExercise(
             log=self.script.log,
         )
 
-        self.script.mtcs.disable_checks_for_components = unittest.mock.Mock()
-        self.script.mtcs.assert_all_enabled = unittest.mock.AsyncMock()
-
         async def _get_state(name):
             return self.mtcs_states.get(name, salobj.State.ENABLED)
 
         self.script.mtcs.get_state = unittest.mock.AsyncMock(side_effect=_get_state)
 
-        self.script.lsstcam.disable_checks_for_components = unittest.mock.Mock()
-        self.script.lsstcam.assert_all_enabled = unittest.mock.AsyncMock()
+        async def _get_lsstcam_state(name):
+            return self.lsstcam_states.get(name, salobj.State.ENABLED)
+
+        self.script.lsstcam.get_state = unittest.mock.AsyncMock(
+            side_effect=_get_lsstcam_state
+        )
         self.script.lsstcam.filter_change_timeout = 30.0
 
         async def _setup_instrument(*, filter: str, **kwargs):
@@ -95,20 +99,6 @@ class TestLsstCamFesExercise(
             await self.configure_script(final_filter="i")
 
             assert self.script.final_filter == "i_39"
-
-    async def test_configure_filters_ignore_list(self):
-        async with self.make_script():
-            ignore_components = ["mtrotator", "mtheaderservice"]
-
-            await self.configure_script(ignore=ignore_components)
-
-            expected = ["mtheaderservice"]
-            self.script.mtcs.disable_checks_for_components.assert_called_once_with(
-                components=expected
-            )
-            self.script.lsstcam.disable_checks_for_components.assert_called_once_with(
-                components=expected
-            )
 
     async def test_run(self):
         """Test most common scenario."""
@@ -215,6 +205,50 @@ class TestLsstCamFesExercise(
 
             with pytest.raises(AssertionError):
                 await self.run_script()
+
+    async def test_run_allows_disabled_mtmount(self):
+        """Test that MTMount may be disabled for the FES exercise."""
+        self.mtcs_states["mtmount"] = salobj.State.DISABLED
+        async with self.make_script():
+            await self.configure_script()
+
+            with mock.patch(
+                "lsst.ts.maintel.standardscripts.daytime_checkout.lsstcam_fes_exercise.random.choice",
+                return_value="g_6",
+            ), mock.patch(
+                "lsst.ts.maintel.standardscripts.daytime_checkout."
+                "lsstcam_fes_exercise.SLEEP_BETWEEN_FILTER_CHANGES",
+                2,
+            ):
+                await self.run_script()
+
+            expected_calls = [
+                unittest.mock.call(filter="g_6"),
+                unittest.mock.call(filter="i_39"),
+            ]
+            self.script.lsstcam.setup_instrument.assert_has_calls(expected_calls)
+
+    async def test_run_rejects_mtmount_standby(self):
+        """Test that MTMount must be at least disabled."""
+        self.mtcs_states["mtmount"] = salobj.State.STANDBY
+        async with self.make_script():
+            await self.configure_script()
+
+            with pytest.raises(AssertionError):
+                await self.run_script()
+
+            self.script.lsstcam.setup_instrument.assert_not_awaited()
+
+    async def test_run_requires_enabled_mtcamera(self):
+        """Test that MTCamera must be enabled for the FES exercise."""
+        self.lsstcam_states["mtcamera"] = salobj.State.DISABLED
+        async with self.make_script():
+            await self.configure_script()
+
+            with pytest.raises(AssertionError):
+                await self.run_script()
+
+            self.script.lsstcam.setup_instrument.assert_not_awaited()
 
     async def test_run_fails_if_cannot_read_current_filter(self):
         """Test the script raises if it cannot read the current filter."""
