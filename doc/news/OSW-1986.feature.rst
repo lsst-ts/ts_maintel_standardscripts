@@ -1,0 +1,1 @@
+Added support for setting guider roi to the base close loop script.
