@@ -47,6 +47,7 @@ from .open_mirror_covers import *
 from .point_azel import *
 from .set_dof import *
 from .setup_mtcs import *
+from .shutdown import *
 from .standby_comcam import *
 from .standby_mtcs import *
 from .stop import *
