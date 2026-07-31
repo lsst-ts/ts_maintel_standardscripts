@@ -525,11 +525,17 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
     async def assert_aos_closed_loop_enabled(self) -> None:
         """Assert that AOS Closed Loop is enabled.
 
-        This method checks the current state of the AOS closed loop. If it
-        is not in WAITING_IMAGE state, it logs a warning and stores the
-        error to be raised at the end of the script.
+        This method checks the current state of the AOS closed loop. The
+        closed loop is considered enabled if the state is not IDLE or ERROR.
+        Valid enabled states include: WAITING_IMAGE, PROCESSING,
+        WAITING_APPLY, and APPLYING_CORRECTION.
         """
         self.log.info("Assert that AOS Closed Loop is enabled.")
+
+        invalid_states = {
+            MTAOS.ClosedLoopState.IDLE,
+            MTAOS.ClosedLoopState.ERROR,
+        }
 
         try:
             self.mtcs.rem.mtaos.evt_closedLoopState.flush()
@@ -539,13 +545,13 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
             state = MTAOS.ClosedLoopState(closed_loop_state_evt.state)
             self.log.info(f"AOS Closed Loop state: {state.name}.")
 
-            if state == MTAOS.ClosedLoopState.WAITING_IMAGE:
-                self.log.info("AOS Closed Loop is enabled and waiting for image.")
+            if state not in invalid_states:
+                self.log.info(f"AOS Closed Loop is enabled (state: {state.name}).")
             else:
                 raise RuntimeError(
-                    f"AOS Closed Loop is not in WAITING_IMAGE state.\n"
+                    f"AOS Closed Loop is not enabled.\n"
                     f"Current state: {state.name}.\n"
-                    "Make sure aos closed loop is enabled. "
+                    "Make sure AOS closed loop is enabled before on-sky operations."
                 )
         except Exception as e:
             self.log.warning(f"AOS closed loop assertion failed: {e}")
