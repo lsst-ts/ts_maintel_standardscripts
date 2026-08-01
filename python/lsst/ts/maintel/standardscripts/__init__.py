@@ -19,50 +19,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-from .apply_dof import *
-from .base_close_loop import *
-from .change_filter_lsstcam import *
-from .close_loop_comcam import *
-from .close_loop_lsstcam import *
-from .close_mirror_covers import *
-from .csc_end_of_night import *
-from .disable_aos_closed_loop import *
-from .disable_hexapod_compensation_mode import *
-from .enable_aos_closed_loop import *
-from .enable_comcam import *
-from .enable_hexapod_compensation_mode import *
-from .enable_lsstcam import *
-from .enable_mtcs import *
-from .ensure_onsky_readiness import *
-from .focus_sweep_comcam import *
-from .focus_sweep_lsstcam import *
-from .home_both_axes import *
-from .move_p2p import *
-from .offline_comcam import *
-from .offline_mtcs import *
-from .offset_camera_hexapod import *
-from .offset_m2_hexapod import *
-from .offset_mtcs import *
-from .open_mirror_covers import *
-from .point_azel import *
-from .set_dof import *
-from .setup_mtcs import *
-from .standby_comcam import *
-from .standby_mtcs import *
-from .stop import *
-from .stop_rotator import *
-from .take_aos_sequence_comcam import *
-from .take_aos_sequence_lsstcam import *
-from .take_image_anycam import *
-from .take_image_comcam import *
-from .take_image_lsstcam import *
-from .take_stuttered_comcam import *
-from .take_stuttered_lsstcam import *
-from .track_target import *
-from .track_target_and_take_image_comcam import *
-from .track_target_and_take_image_gencam import *
-from .track_target_and_take_image_lsstcam import *
-
 try:
     from .version import *
 except ImportError:
