@@ -30,16 +30,6 @@ from lsst.ts import salobj, utils
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.standardscripts.utils import get_topic_time_utc
 
-INGESTION_TIMEOUT = 15  # max time to wait for all raft/sensors ingestion events
-
-# Expected ingestion counts by image type
-EXPECTED_BIAS_INGEST_SCIENCE = 189
-EXPECTED_BIAS_INGEST_GUIDER = 0
-EXPECTED_BIAS_INGEST_WFS = 0
-EXPECTED_ENGTEST_INGEST_SCIENCE = 189
-EXPECTED_ENGTEST_INGEST_GUIDER = 8
-EXPECTED_ENGTEST_INGEST_WFS = 8
-
 
 class LsstCamCheckout(salobj.BaseScript):
     """Daytime LSSTCam Checkout SAL Script.
@@ -77,19 +67,23 @@ class LsstCamCheckout(salobj.BaseScript):
     the 'ignore' parameter.
     """
 
+    _SCIENCE_SENSOR_PATTERN = re.compile(r"^S\d{2}$")
+    _GUIDER_SENSOR_PATTERN = re.compile(r"^SG\d$")
+    _WFS_SENSOR_PATTERN = re.compile(r"^SW\d$")
+
     def __init__(self, index):
         super().__init__(
             index=index,
             descr="Execute daytime checkout of LSSTCam.",
         )
         self.lsstcam = None
-        self.ingestion_timeout = INGESTION_TIMEOUT
-        self.expected_bias_ingest_science = EXPECTED_BIAS_INGEST_SCIENCE
-        self.expected_bias_ingest_guider = EXPECTED_BIAS_INGEST_GUIDER
-        self.expected_bias_ingest_wfs = EXPECTED_BIAS_INGEST_WFS
-        self.expected_engtest_ingest_science = EXPECTED_ENGTEST_INGEST_SCIENCE
-        self.expected_engtest_ingest_guider = EXPECTED_ENGTEST_INGEST_GUIDER
-        self.expected_engtest_ingest_wfs = EXPECTED_ENGTEST_INGEST_WFS
+        self.ingestion_timeout = 15  # max time to wait for ingestion events
+        self.expected_bias_ingest_science = 189
+        self.expected_bias_ingest_guider = 0
+        self.expected_bias_ingest_wfs = 0
+        self.expected_engtest_ingest_science = 189
+        self.expected_engtest_ingest_guider = 8
+        self.expected_engtest_ingest_wfs = 8
         self.current_filter = None
         self.available_filters = None
 
@@ -157,14 +151,16 @@ class LsstCamCheckout(salobj.BaseScript):
 
     def set_metadata(self, metadata):
         """Set estimated duration and metadata."""
-        read_out_time = getattr(self.lsstcam, "read_out_time", 2.0)
-        shutter_time = getattr(self.lsstcam, "shutter_time", 1.0)
-        per_exposure_time = self.ingestion_timeout + read_out_time + shutter_time
+        per_exposure_time = (
+            self.ingestion_timeout
+            + self.lsstcam.read_out_time
+            + self.lsstcam.shutter_time
+        )
 
         metadata.duration = 2 * per_exposure_time
         metadata.instrument = "LSSTCam"
-        metadata.filter = self.current_filter
-        metadata.survey = self.program
+        if self.program is not None:
+            metadata.survey = self.program
 
     async def run(self):
 
@@ -175,13 +171,7 @@ class LsstCamCheckout(salobj.BaseScript):
         await self.verify_engtest_frame()
 
     async def assert_feasibility(self):
-        """Check that all required components are enabled and ready.
-
-        Raises
-        ------
-        AssertionError
-            If any LSSTCam component is not enabled.
-        """
+        """Check that all required components are enabled and ready."""
         await self.checkpoint("Checking components status.")
 
         await self.lsstcam.assert_all_enabled()
@@ -202,15 +192,15 @@ class LsstCamCheckout(salobj.BaseScript):
         try:
             self.current_filter = await self.lsstcam.get_current_filter()
             self.log.info(f"Current filter in beam: {self.current_filter}.")
-        except Exception as e:
-            self.log.warning(f"Could not retrieve current filter: {e}.")
+        except Exception:
+            self.log.warning("Could not retrieve current filter.", exc_info=True)
             self.current_filter = None
 
         try:
             self.available_filters = await self.lsstcam.get_available_filters()
             self.log.info(f"Available filters: {self.available_filters}.")
-        except Exception as e:
-            self.log.warning(f"Could not retrieve available filters: {e}.")
+        except Exception:
+            self.log.warning("Could not retrieve available filters.", exc_info=True)
 
     async def verify_bias_frame(self):
         """Take a bias frame and verify MTOODS ingestion.
@@ -266,9 +256,10 @@ class LsstCamCheckout(salobj.BaseScript):
 
         try:
             inst_filter = await self.lsstcam.get_current_filter()
-        except Exception as e:
+        except Exception:
             self.log.warning(
-                f"Engineering test completed but could not read current filter: {e}."
+                "Engineering test completed but could not read current filter.",
+                exc_info=True,
             )
         else:
             if inst_filter:
@@ -591,17 +582,14 @@ class LsstCamCheckout(salobj.BaseScript):
         science_pairs = set()
         guider_pairs = set()
         wfs_pairs = set()
-        science_pattern = re.compile(r"^S\d{2}$")
-        guider_pattern = re.compile(r"^SG\d$")
-        wfs_pattern = re.compile(r"^SW\d$")
 
         for event in ingestion_events:
             pair = (event.raft, event.sensor)
-            if science_pattern.match(event.sensor):
+            if self._SCIENCE_SENSOR_PATTERN.match(event.sensor):
                 science_pairs.add(pair)
-            elif guider_pattern.match(event.sensor):
+            elif self._GUIDER_SENSOR_PATTERN.match(event.sensor):
                 guider_pairs.add(pair)
-            elif wfs_pattern.match(event.sensor):
+            elif self._WFS_SENSOR_PATTERN.match(event.sensor):
                 wfs_pairs.add(pair)
 
         return science_pairs, guider_pairs, wfs_pairs
