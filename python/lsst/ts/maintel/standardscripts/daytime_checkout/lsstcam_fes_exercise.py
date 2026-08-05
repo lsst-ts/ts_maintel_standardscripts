@@ -39,7 +39,7 @@ BAND_TO_FILTER = {
     "y": "y_10",
 }
 
-SLEEP_BETWEEN_FILTER_CHANGES = 120  # seconds
+DELAY_BETWEEN_FILTER_CHANGES = 120  # seconds
 
 
 class LsstCamFesExercise(salobj.BaseScript):
@@ -156,9 +156,8 @@ class LsstCamFesExercise(salobj.BaseScript):
 
     def set_metadata(self, metadata):
         change_timeout = getattr(self.lsstcam, "filter_change_timeout", 120)
-        metadata.duration = 2 * float(change_timeout) + SLEEP_BETWEEN_FILTER_CHANGES
+        metadata.duration = 2 * float(change_timeout) + DELAY_BETWEEN_FILTER_CHANGES
         metadata.instrument = "LSSTCam"
-        metadata.filter = self.final_filter
 
     async def configure(self, config):
         self.final_filter = self._map_filter_value(
@@ -248,34 +247,40 @@ class LsstCamFesExercise(salobj.BaseScript):
         if not physical_filters:
             raise RuntimeError("No physical filters are available for exercise.")
 
-        if self.final_filter not in physical_filters:
-            raise RuntimeError(
-                f"Requested final filter {self.final_filter} is not currently available."
-            )
+        if self.final_filter is None:
+            raise RuntimeError("Final filter is unknown; cannot exercise filters.")
 
         final_filter = self.final_filter.strip()
-        intermediate_candidates = self._get_intermediate_candidates(physical_filters)
+
+        if final_filter not in physical_filters:
+            raise RuntimeError(
+                f"Requested final filter {final_filter} is not currently available."
+            )
+
+        intermediate_candidates = self._get_intermediate_candidates(
+            physical_filters, final_filter
+        )
 
         if not intermediate_candidates:
             if len(physical_filters) == 1:
                 only_filter = physical_filters[0]
                 self.log.warning(
                     f"Only one physical filter ({only_filter}) is available; skipping exercise "
-                    f"and ensuring final filter is {self.final_filter}."
+                    f"and ensuring final filter is {final_filter}."
                 )
             else:
                 self.log.warning(
                     "No distinct intermediate filter is available; skipping intermediate "
-                    f"exercise and ensuring final filter is {self.final_filter}."
+                    f"exercise and ensuring final filter is {final_filter}."
                 )
 
             if self.current_filter and self.current_filter.strip() == final_filter:
                 self.log.info(
-                    f"Final filter {self.final_filter} already in beam; skipping filter motion."
+                    f"Final filter {final_filter} already in beam; skipping filter motion."
                 )
                 return
 
-            await self._change_filter(self.final_filter)
+            await self._change_filter(final_filter)
             return
 
         intermediate_filter = random.choice(intermediate_candidates)
@@ -286,43 +291,64 @@ class LsstCamFesExercise(salobj.BaseScript):
         await self._change_filter(intermediate_filter)
 
         await self.checkpoint("Waiting 120 seconds before setting up final filter.")
-        await asyncio.sleep(SLEEP_BETWEEN_FILTER_CHANGES)
+        await asyncio.sleep(DELAY_BETWEEN_FILTER_CHANGES)
 
-        await self.checkpoint(f"Changing filter to final filter: {self.final_filter}.")
-        await self._change_filter(self.final_filter)
+        await self.checkpoint(f"Changing filter to final filter: {final_filter}.")
+        await self._change_filter(final_filter)
 
     async def _ensure_mtcs_ready(self):
         """Ensure MTCS components are set for safe filter changes."""
         if self.mtcs is None:
             raise RuntimeError("MTCS is unavailable; cannot exercise filters.")
 
-        await self._assert_state(self.mtcs, "mtptg", salobj.State.ENABLED)
-        await self._assert_state(self.mtcs, "mtrotator", salobj.State.ENABLED)
+        component = "mtptg"
+        current_state = await self.mtcs.get_state(component)
+        self._check_component_state(component, current_state, (salobj.State.ENABLED,))
 
-        mtmount_acceptable_states = {salobj.State.ENABLED, salobj.State.DISABLED}
-        mtmount_state = await self.mtcs.get_state("mtmount")
+        component = "mtrotator"
+        current_state = await self.mtcs.get_state(component)
+        self._check_component_state(component, current_state, (salobj.State.ENABLED,))
 
-        if mtmount_state not in mtmount_acceptable_states:
-            raise RuntimeError(
-                "MTMount can be either ENABLED or DISABLED before exercising filters. "
-                f"Current state is {mtmount_state.name}."
-            )
+        component = "mtmount"
+        current_state = await self.mtcs.get_state(component)
+        self._check_component_state(
+            component,
+            current_state,
+            (salobj.State.ENABLED, salobj.State.DISABLED),
+        )
 
     async def _ensure_lsstcam_ready(self):
         """Ensure LSSTCam components are set for safe filter changes."""
         if self.lsstcam is None:
             raise RuntimeError("LSSTCam is unavailable; cannot exercise filters.")
 
-        await self._assert_state(self.lsstcam, "mtcamera", salobj.State.ENABLED)
+        component = "mtcamera"
+        current_state = await self.lsstcam.get_state(component)
+        self._check_component_state(component, current_state, (salobj.State.ENABLED,))
 
-    async def _assert_state(
-        self, remote_group, component: str, required_state: salobj.State
+    def _check_component_state(
+        self,
+        component: str,
+        current_state: salobj.State,
+        required_states: Iterable[salobj.State],
     ) -> None:
-        """Assert that a CSC in a remote group is in the required state."""
-        current_state = await remote_group.get_state(component)
-        if current_state != required_state:
+        """Check that a CSC is in one of the required states."""
+        required_states = tuple(required_states)
+        if current_state not in required_states:
+            required_state_names = [state.name for state in required_states]
+            if len(required_state_names) == 1:
+                required_state_message = f"must be {required_state_names[0]}"
+            elif len(required_state_names) == 2:
+                required_state_message = (
+                    f"can be either {required_state_names[0]} "
+                    f"or {required_state_names[1]}"
+                )
+            else:
+                required_state_message = (
+                    f"must be one of {', '.join(required_state_names)}"
+                )
             raise RuntimeError(
-                f"{component} must be {required_state.name} before exercising filters. "
+                f"{component} {required_state_message} before exercising filters. "
                 f"Current state is {current_state.name}."
             )
 
@@ -333,9 +359,7 @@ class LsstCamFesExercise(salobj.BaseScript):
             await self.lsstcam.setup_instrument(filter=target_filter)
             self.current_filter = target_filter
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to change filter to {target_filter}: {exc}."
-            ) from exc
+            raise RuntimeError(f"Failed to change filter to {target_filter}.") from exc
 
     def _get_physical_filters(self, filters: Iterable[str]) -> List[str]:
         """Return a list of physical filters from the given filters."""
@@ -356,22 +380,23 @@ class LsstCamFesExercise(salobj.BaseScript):
             return []
 
         if isinstance(available_filters, str):
-            return [flt.strip() for flt in available_filters.split(",") if flt.strip()]
+            return [f.strip() for f in available_filters.split(",") if f.strip()]
 
         filters = list(available_filters)
         if len(filters) == 1 and isinstance(filters[0], str) and "," in filters[0]:
-            return [flt.strip() for flt in filters[0].split(",") if flt.strip()]
+            return [f.strip() for f in filters[0].split(",") if f.strip()]
 
-        return [flt.strip() for flt in filters if str(flt).strip()]
+        return [f.strip() for f in filters if str(f).strip()]
 
-    def _get_intermediate_candidates(self, physical_filters: List[str]) -> List[str]:
+    def _get_intermediate_candidates(
+        self, physical_filters: List[str], final_filter: str
+    ) -> List[str]:
         """Return candidate intermediate physical filters.
 
         The intermediate is chosen from physical filters excluding the final
         filter. If the current filter is physical, it is also excluded so the
         intermediate change is not a no-op.
         """
-        final_filter = self.final_filter.strip()
         candidates = [flt for flt in physical_filters if flt.strip() != final_filter]
 
         if self._is_physical(self.current_filter):

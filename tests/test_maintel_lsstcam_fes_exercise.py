@@ -110,7 +110,7 @@ class TestLsstCamFesExercise(
                 return_value="g_6",
             ), mock.patch(
                 "lsst.ts.maintel.standardscripts.daytime_checkout."
-                "lsstcam_fes_exercise.SLEEP_BETWEEN_FILTER_CHANGES",
+                "lsstcam_fes_exercise.DELAY_BETWEEN_FILTER_CHANGES",
                 2,
             ):
                 await self.run_script()
@@ -132,7 +132,7 @@ class TestLsstCamFesExercise(
                 return_value="g_6",
             ), mock.patch(
                 "lsst.ts.maintel.standardscripts.daytime_checkout."
-                "lsstcam_fes_exercise.SLEEP_BETWEEN_FILTER_CHANGES",
+                "lsstcam_fes_exercise.DELAY_BETWEEN_FILTER_CHANGES",
                 2,
             ):
                 await self.run_script()
@@ -217,7 +217,7 @@ class TestLsstCamFesExercise(
                 return_value="g_6",
             ), mock.patch(
                 "lsst.ts.maintel.standardscripts.daytime_checkout."
-                "lsstcam_fes_exercise.SLEEP_BETWEEN_FILTER_CHANGES",
+                "lsstcam_fes_exercise.DELAY_BETWEEN_FILTER_CHANGES",
                 2,
             ):
                 await self.run_script()
