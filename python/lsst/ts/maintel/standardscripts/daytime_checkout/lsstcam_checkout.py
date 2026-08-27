@@ -61,7 +61,8 @@ class LsstCamCheckout(salobj.BaseScript):
     is ready for nighttime operations. It does not include telescope or dome
     motion. It will enable LSSTCam, take a bias and an engineering frame, and
     check that both frames were successfully ingested by MTOODS with all
-    raft/sensor combinations having successful status.
+    raft/sensor combinations having successful status. The engineering frame
+    is intentionally taken without TCS synchronization.
 
     Individual LSSTCam components can be ignored in status checks using
     the 'ignore' parameter.
@@ -143,6 +144,7 @@ class LsstCamCheckout(salobj.BaseScript):
                 domain=self.domain,
                 intended_usage=LSSTCamUsages.All,
                 log=self.log,
+                tcs_ready_to_take_data=None,
             )
             await self.lsstcam.start_task
 
