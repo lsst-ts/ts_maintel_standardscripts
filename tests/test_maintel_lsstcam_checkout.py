@@ -93,8 +93,8 @@ class TestLsstCamCheckout(
         self.script.lsstcam.take_bias = unittest.mock.AsyncMock(
             return_value=[20250101000001]
         )
-        self.script.lsstcam.take_engtest = unittest.mock.AsyncMock(
-            return_value=[20250101000002]
+        self.script.lsstcam.take_darks = unittest.mock.AsyncMock(
+            side_effect=[[20250101000002], [20250101000003]]
         )
         self.script.lsstcam.get_current_filter = unittest.mock.AsyncMock(
             return_value=self.current_filter
@@ -138,6 +138,21 @@ class TestLsstCamCheckout(
             await self.configure_script()
 
             assert self.script.lsstcam is not None
+            assert self.script.program == "BLOCK-T594"
+            assert self.script.reason == "LSSTCamCheckout"
+            assert self.script.dark_exptime == 30.0
+            assert self.script.ndarks == 2
+
+    async def test_configure_metadata_overrides(self):
+        """Ensure exposure metadata configuration can be overridden."""
+        async with self.make_script():
+            await self.configure_script(
+                program="TestProgram",
+                reason="TestReason",
+            )
+
+            assert self.script.program == "TestProgram"
+            assert self.script.reason == "TestReason"
 
     async def test_configure_ignore_components(self):
         """Ensure ignore list is forwarded to LSSTCam."""
@@ -160,20 +175,38 @@ class TestLsstCamCheckout(
             self.script.expected_bias_ingest_science = 5
             self.script.expected_bias_ingest_guider = 0
             self.script.expected_bias_ingest_wfs = 0
-            self.script.expected_engtest_ingest_science = 5
-            self.script.expected_engtest_ingest_guider = 0
-            self.script.expected_engtest_ingest_wfs = 0
+            self.script.expected_dark_ingest_science = 5
+            self.script.expected_dark_ingest_guider = 0
+            self.script.expected_dark_ingest_wfs = 0
 
             await self.run_script()
 
             # Verify image taking was called
             self.script.lsstcam.take_bias.assert_awaited_once()
-            self.script.lsstcam.take_engtest.assert_awaited_once()
+            assert self.script.lsstcam.take_darks.await_count == 2
+            self.script.lsstcam.take_darks.assert_has_awaits(
+                [
+                    unittest.mock.call(
+                        exptime=30.0,
+                        ndarks=1,
+                        program="BLOCK-T594",
+                        reason="LSSTCamCheckout",
+                        note=None,
+                    ),
+                    unittest.mock.call(
+                        exptime=30.0,
+                        ndarks=1,
+                        program="BLOCK-T594",
+                        reason="LSSTCamCheckout",
+                        note=None,
+                    ),
+                ]
+            )
             self.script.lsstcam.assert_all_enabled.assert_called_once()
 
             # Verify ingestion helper was triggered for each exposure
             flush_mock = self.script.lsstcam.rem.mtoods.evt_imageInOODS.flush
-            assert flush_mock.call_count == 2
+            assert flush_mock.call_count == 3
             next_mock = self.script.lsstcam.rem.mtoods.evt_imageInOODS.next
             assert next_mock.await_count > 0
 
@@ -194,9 +227,9 @@ class TestLsstCamCheckout(
             with pytest.raises(AssertionError):
                 await self.run_script()
 
-            # Verify bias was taken but engtest was not
+            # Verify bias was taken but darks were not
             self.script.lsstcam.take_bias.assert_awaited_once()
-            self.script.lsstcam.take_engtest.assert_not_awaited()
+            self.script.lsstcam.take_darks.assert_not_awaited()
 
     async def test_run_with_incomplete_ingestion(self):
         """Test script raises when fewer events than expected.
@@ -214,7 +247,7 @@ class TestLsstCamCheckout(
                 await self.run_script()
 
             self.script.lsstcam.take_bias.assert_awaited_once()
-            self.script.lsstcam.take_engtest.assert_not_awaited()
+            self.script.lsstcam.take_darks.assert_not_awaited()
 
     async def test_count_sensor_types(self):
         """Test _count_sensor_types classifies science, guider,
