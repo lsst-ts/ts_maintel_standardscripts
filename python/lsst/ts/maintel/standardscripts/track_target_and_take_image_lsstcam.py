@@ -299,13 +299,49 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
 
         for exptime in self.config.exp_times:
             await self.wait_mtaos_idle()
-            await self.lsstcam.take_object(
-                exptime=exptime,
-                group_id=self.group_id,
-                reason=self.config.reason,
-                program=self.config.program,
-                note=self.note,
+            await self.lsstcam.wait_for_camera_shutter_state(
+                {
+                    CameraShutterDetailedState.CLOSED,
+                },
+                timeout=self.lsstcam.read_out_time + self.lsstcam.shutter_time,
             )
+            take_image_task = asyncio.create_task(
+                self.lsstcam.take_object(
+                    exptime=exptime,
+                    group_id=self.group_id,
+                    reason=self.config.reason,
+                    program=self.config.program,
+                    note=self.note,
+                )
+            )
+
+            await self.lsstcam.wait_for_camera_shutter_state(
+                {
+                    CameraShutterDetailedState.OPENING,
+                    CameraShutterDetailedState.OPEN,
+                },
+                timeout=self.lsstcam.shutter_time,
+            )
+
+            if take_image_task.done():
+                await take_image_task
+
+            await self.lsstcam.wait_for_camera_shutter_state(
+                {
+                    CameraShutterDetailedState.CLOSING,
+                    CameraShutterDetailedState.CLOSED,
+                },
+                timeout=exptime + self.lsstcam.shutter_time,
+            )
+
+            if take_image_task.done():
+                await take_image_task
+            else:
+                take_image_task.cancel()
+                try:
+                    await take_image_task
+                except asyncio.CancelledError:
+                    pass
 
     async def wait_mtaos_idle(self):
         self.mtcs.rem.mtaos.evt_closedLoopState.flush()
