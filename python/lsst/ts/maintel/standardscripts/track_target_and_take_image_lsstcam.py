@@ -25,6 +25,7 @@ import asyncio
 
 import astropy.units as u
 from astropy.coordinates import Angle
+from lsst.ts.observatory.control.base_camera import CameraShutterDetailedState
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.utils import RotType
@@ -201,6 +202,14 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
     async def track_target_and_setup_instrument(self):
         """Track target and setup instrument in parallel."""
 
+        await self.lsstcam.wait_for_camera_shutter_state(
+            {
+                CameraShutterDetailedState.CLOSED,
+            },
+            timeout=self.lsstcam.read_out_time
+            + self.lsstcam.shutter_time
+            + self.lsstcam.fast_timeout,
+        )
         current_filter = await self.lsstcam.get_current_filter()
 
         self.tracking_started = True
