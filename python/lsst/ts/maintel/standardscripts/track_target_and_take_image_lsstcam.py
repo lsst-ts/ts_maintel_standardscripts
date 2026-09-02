@@ -320,7 +320,7 @@ class TrackTargetAndTakeImageLSSTCam(BaseTrackTargetAndTakeImage):
                     CameraShutterDetailedState.OPENING,
                     CameraShutterDetailedState.OPEN,
                 },
-                timeout=self.lsstcam.shutter_time,
+                timeout=self.lsstcam.shutter_time + self.lsstcam.fast_timeout,
             )
 
             if take_image_task.done():
