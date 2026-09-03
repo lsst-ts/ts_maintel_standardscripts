@@ -53,6 +53,8 @@ class PrepareForOnSky(salobj.BaseScript):
     on-sky operations on MTCS and LSSTCam.
     Setting up LSSTCam with filter 'FILTER': before configuring LSSTCam with
     the specified filter.
+    Ensure OCPS:101 is enabled: before checking its summary state and enabling
+    it if necessary.
     Assert that MTM1M3TS is not in engineering mode: before running prepare
     for on-sky operations.
     """
@@ -70,6 +72,7 @@ class PrepareForOnSky(salobj.BaseScript):
 
         self.mtcs = None
         self.lsstcam = None
+        self.ocps = None
         self.mtm1m3ts = None
         self.homing_attempts = 10
         self.target_az = self.DEFAULT_TARGET_AZ
@@ -184,6 +187,15 @@ class PrepareForOnSky(salobj.BaseScript):
         else:
             self.log.debug("LSST Camera already initialized.")
 
+    async def configure_ocps(self) -> None:
+        """Initialize OCPS:101 if not already initialized."""
+        if self.ocps is None:
+            self.log.debug("Creating OCPS:101 remote instance.")
+            self.ocps = salobj.Remote(self.domain, "OCPS", index=101)
+            await self.ocps.start_task
+        else:
+            self.log.debug("OCPS:101 already initialized.")
+
     async def configure_mtm1m3ts(self) -> None:
         """Initialize MTM1M3TS remote if not already initialized."""
         if self.mtm1m3ts is None:
@@ -194,9 +206,9 @@ class PrepareForOnSky(salobj.BaseScript):
             self.log.debug("MTM1M3TS already initialized.")
 
     async def configure(self, config):
-
         await self.configure_tcs()
         await self.configure_camera()
+        await self.configure_ocps()
         await self.configure_mtm1m3ts()
 
         critical_cscs = self.mtcs.get_critical_components_for_prepare_for_onsky()
@@ -225,6 +237,26 @@ class PrepareForOnSky(salobj.BaseScript):
 
     def set_metadata(self, metadata):
         metadata.duration = 600.0 + self.lsstcam.filter_change_timeout
+
+    async def ensure_ocps_enabled(self) -> None:
+        """Ensure the OCPS:101 CSC is enabled."""
+        self.log.info("Ensuring OCPS:101 is enabled.")
+
+        summary_state = (
+            await self.ocps.evt_summaryState.aget(timeout=self.mtcs.fast_timeout)
+        ).summaryState
+
+        current_state = salobj.State(summary_state)
+
+        if current_state == salobj.State.ENABLED:
+            self.log.info("OCPS:101 is already enabled.")
+        else:
+            self.log.warning(
+                f"OCPS:101 is not enabled (current state: {current_state!r}). "
+                "Attempting to enable."
+            )
+            await salobj.set_summary_state(self.ocps, salobj.State.ENABLED)
+            self.log.info("OCPS:101 has been enabled.")
 
     async def assert_mtm1m3ts_not_in_engineering_mode(self) -> None:
         """Assert that MTM1M3TS is not in engineering mode.
@@ -266,7 +298,6 @@ class PrepareForOnSky(salobj.BaseScript):
             )
 
     async def run(self):
-
         await self.checkpoint("Preparing MTCS components for on-sky operations.")
 
         await self.mtcs.assert_all_enabled(
@@ -287,6 +318,9 @@ class PrepareForOnSky(salobj.BaseScript):
         )
 
         await self.lsstcam.setup_instrument(filter=self.filter)
+
+        await self.checkpoint("Ensure OCPS:101 is enabled.")
+        await self.ensure_ocps_enabled()
 
         await self.checkpoint("Assert that MTM1M3TS is not in engineering mode.")
         await self.assert_mtm1m3ts_not_in_engineering_mode()

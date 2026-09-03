@@ -48,6 +48,14 @@ class TestPrepareForOnSky(
             intended_usage=LSSTCamUsages.DryTest,
         )
 
+        # Mock OCPS:101 remote
+        self.script.ocps = mock.Mock()
+        self.script.ocps.start_task = mock.AsyncMock()
+        self.script.ocps.evt_summaryState = mock.Mock()
+        self.script.ocps.evt_summaryState.aget = mock.AsyncMock(
+            return_value=mock.Mock(summaryState=salobj.State.ENABLED)
+        )
+
         # Mock MTM1M3TS remote
         self.script.mtm1m3ts = mock.Mock()
         self.script.mtm1m3ts.start_task = mock.AsyncMock()
@@ -132,7 +140,6 @@ class TestPrepareForOnSky(
 
     async def test_configure_ignore_critical_components(self):
         async with self.make_script():
-
             # Get the actual critical components from MTCS
             critical_components = (
                 self.script.mtcs.get_critical_components_for_prepare_for_onsky()
@@ -166,6 +173,40 @@ class TestPrepareForOnSky(
                 target_rot=PrepareForOnSky.DEFAULT_TARGET_ROT,
             )
             self.script.lsstcam.setup_instrument.assert_called_once_with(filter="i_39")
+            self.script.ocps.evt_summaryState.aget.assert_awaited_once()
+
+    async def test_ensure_ocps_enabled(self):
+        async with self.make_script():
+            await self.configure_script()
+
+            with mock.patch.object(
+                salobj,
+                "set_summary_state",
+                new_callable=mock.AsyncMock,
+            ) as set_summary_state:
+                await self.script.ensure_ocps_enabled()
+
+                set_summary_state.assert_not_awaited()
+
+    async def test_ensure_ocps_enabled_from_standby(self):
+        async with self.make_script():
+            await self.configure_script()
+
+            self.script.ocps.evt_summaryState.aget.return_value = mock.Mock(
+                summaryState=salobj.State.STANDBY
+            )
+
+            with mock.patch.object(
+                salobj,
+                "set_summary_state",
+                new_callable=mock.AsyncMock,
+            ) as set_summary_state:
+                await self.script.ensure_ocps_enabled()
+
+                set_summary_state.assert_awaited_once_with(
+                    self.script.ocps,
+                    salobj.State.ENABLED,
+                )
 
     async def test_run_with_target_position(self):
         async with self.make_script():
