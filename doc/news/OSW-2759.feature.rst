@@ -1,0 +1,1 @@
+Add ``PrepareForVent`` script to automate the Simonyi evening venting protocol (dome rotation, mirror covers, louvers, and aperture shutter).
