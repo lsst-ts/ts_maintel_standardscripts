@@ -79,7 +79,7 @@ class LsstCamCheckout(salobj.BaseScript):
             descr="Execute daytime checkout of LSSTCam.",
         )
         self.lsstcam = None
-        self.ingestion_timeout = 60  # max time to wait for ingestion events
+        self.ingestion_timeout = 120  # max time to wait for ingestion events
         self.expected_bias_ingest_science = 189
         self.expected_bias_ingest_guider = 0
         self.expected_bias_ingest_wfs = 0
