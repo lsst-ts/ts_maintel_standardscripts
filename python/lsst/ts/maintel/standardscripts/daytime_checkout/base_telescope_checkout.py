@@ -59,14 +59,14 @@ class BaseTelescopeCheckout(salobj.BaseScript):
     6. Slew to the tracked test target by subtracting ``delta_az`` and
        ``delta_el`` from the setup azimuth and elevation, and adding
        ``delta_rot`` to the setup rotator position using physical-sky
-       rotation.
+       rotation. When checking the dome, wait for its azimuth and elevation
+       alignment while ignoring shutter vignetting.
     7. Verify tracking for ``track_duration``.
-    8. Return the TMA to the position defined by ``mtcs.tel_park_az``,
+    8. If checking the dome, disable following.
+    9. Return the TMA to the position defined by ``mtcs.tel_park_az``,
        ``mtcs.tel_park_el``, and ``mtcs.tel_park_rot``, then stop tracking.
-    9. If checking the dome, disable following and park it. Otherwise perform
+    10. If checking the dome, park it. Otherwise perform
        only an optional defensive following check.
-    10. Ensure the mirror covers remain closed and, when checking the dome,
-        assert its shutter panels remain closed.
     11. Assert MTM1M3TS is enabled and not in engineering mode. This final
         check fails the script directly without repeating the completed
         movement checkout.
@@ -286,13 +286,24 @@ class BaseTelescopeCheckout(salobj.BaseScript):
         tracked_el = self.mtcs.tel_park_el - self.delta_el
         coordinate = self.mtcs.radec_from_azel(az=tracked_az, el=tracked_el)
 
-        await self.mtcs.slew_icrs(
-            ra=coordinate.ra,
-            dec=coordinate.dec,
-            rot=self.mtcs.tel_park_rot + self.delta_rot,
-            rot_type=RotType.PhysicalSky,
-            target_name="Daytime checkout tracking target",
-        )
+        check_mtdome = self.mtcs.check.mtdome
+        try:
+            if self.include_dome:
+                self.mtcs.check.mtdome = False
+            await self.mtcs.slew_icrs(
+                ra=coordinate.ra,
+                dec=coordinate.dec,
+                rot=self.mtcs.tel_park_rot + self.delta_rot,
+                rot_type=RotType.PhysicalSky,
+                target_name="Daytime checkout tracking target",
+            )
+        finally:
+            self.mtcs.check.mtdome = check_mtdome
+
+        if self.include_dome:
+            await self.mtcs.wait_for_dome_azel_inposition(
+                timeout=self.mtcs.long_long_timeout
+            )
 
     async def run(self) -> None:
         tracked_az = self.mtcs.tel_park_az - self.delta_az

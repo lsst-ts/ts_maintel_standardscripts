@@ -74,6 +74,7 @@ class TestTelescopeAndDomeCheckout(
             return_value=types.SimpleNamespace(ra=1.0, dec=-2.0)
         )
         self.script.mtcs.slew_icrs = mock.AsyncMock()
+        self.script.mtcs.wait_for_dome_azel_inposition = mock.AsyncMock()
         self.script.mtcs.check_tracking = mock.AsyncMock()
         self.script.mtcs.stop_tracking = mock.AsyncMock()
         self.script.mtcs.disable_dome_following = mock.AsyncMock()
@@ -169,6 +170,11 @@ class TestTelescopeAndDomeCheckout(
     async def test_run(self):
         async with self.make_script():
             await self.configure_script()
+
+            async def assert_dome_wait_disabled(**kwargs):
+                assert not self.script.mtcs.check.mtdome
+
+            self.script.mtcs.slew_icrs.side_effect = assert_dome_wait_disabled
             await self.run_script()
 
             self.script.mtcs.assert_all_enabled.assert_awaited_once_with()
@@ -186,6 +192,10 @@ class TestTelescopeAndDomeCheckout(
                 rot=self.script.mtcs.tel_park_rot + self.script.delta_rot,
                 rot_type=RotType.PhysicalSky,
                 target_name="Daytime checkout tracking target",
+            )
+            assert self.script.mtcs.check.mtdome
+            self.script.mtcs.wait_for_dome_azel_inposition.assert_awaited_once_with(
+                timeout=self.script.mtcs.long_long_timeout
             )
             self.script.mtcs.check_tracking.assert_awaited_once_with(
                 track_duration=30.0
@@ -209,6 +219,7 @@ class TestTelescopeAndDomeCheckout(
             self.script.mtcs.set_telescope_and_dome_checkout_final_state.assert_awaited_once_with(
                 check_dome=False
             )
+            self.script.mtcs.wait_for_dome_azel_inposition.assert_not_awaited()
 
     async def test_run_fails_mtm1m3ts_after_finalization(self):
         async with self.make_script():
@@ -279,6 +290,7 @@ class TestTelescopeAndDomeCheckout(
             self.script.mtcs.stop_tracking.assert_awaited_once_with()
             self.script.mtcs.disable_dome_following.assert_awaited_once_with()
             self.script.mtcs.set_telescope_and_dome_checkout_final_state.assert_not_awaited()
+            assert self.script.mtcs.check.mtdome
 
     async def test_telescope_only_abnormal_cleanup_is_minimal(self):
         self.script_class = TelescopeCheckout
