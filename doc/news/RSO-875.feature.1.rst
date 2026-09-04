@@ -1,0 +1,1 @@
+Added a daytime telescope-only checkout script for the Simonyi Telescope.
