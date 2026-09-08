@@ -1,0 +1,1 @@
+Add ``mtdome/exit_fault_dome.py`` helper script for the dome handover procedure.
