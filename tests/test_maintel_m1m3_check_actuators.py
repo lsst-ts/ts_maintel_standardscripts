@@ -23,13 +23,15 @@ import asyncio
 import logging
 import types
 import unittest
+from datetime import datetime
 
+import pandas as pd
 from lsst.ts import salobj
 from lsst.ts.maintel.standardscripts.m1m3 import CheckActuators
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.standardscripts import BaseScriptTestCase
 from lsst.ts.xml.enums.MTM1M3 import BumpTest, DetailedStates
-from lsst.ts.xml.tables.m1m3 import force_actuator_from_id
+from lsst.ts.xml.tables.m1m3 import FAOrientation, force_actuator_from_id
 
 
 class FakeBumpTestValue:
@@ -83,6 +85,7 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
         self.script.mtcs.rem.mtm1m3.configure_mock(
             **{
                 "evt_detailedState.aget": self.get_m1m3_detailed_state,
+                "evt_forceActuatorBumpTestStatus.aget": self.mock_evt_force_actuator_bump_test_status,
             }
         )
         self.script.mtcs.get_m1m3_actuator_to_test = self.get_m1m3_actuator_to_test
@@ -94,7 +97,44 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
         self.failed_primary_test = set()
         self.failed_secondary_test = set()
 
+        self.script.get_efd_client = unittest.mock.AsyncMock()
+        self.script.get_forces_data_from_efd = unittest.mock.AsyncMock(
+            side_effect=self.mock_select_time_series
+        )
+
         return (self.script,)
+
+    async def mock_select_time_series(self, *args, **kwargs):
+        applied_forces = pd.DataFrame(
+            data=[[0.000000], [0.066860]],
+            columns=["primaryCylinderForce55"],
+            index=[
+                pd.Timestamp("2025-08-25T20:59:26.542463Z"),
+                pd.Timestamp("2025-08-25T20:59:26.562860Z"),
+            ],
+        )
+        measured_forces = pd.DataFrame(
+            data=[[-0.098295], [-0.262120]],
+            columns=["secondaryCylinderForce41"],
+            index=[
+                pd.Timestamp("2025-08-25T20:59:26.542463Z"),
+                pd.Timestamp("2025-08-25T20:59:26.562860Z"),
+            ],
+        )
+        return applied_forces, measured_forces
+
+    async def mock_evt_force_actuator_bump_test_status(self, *args, **kwargs):
+        _mtm1m3_evt_force_actuator_bump_test_status = types.SimpleNamespace(
+            primaryTest=[BumpTest.NOTTESTED]
+            * len(self.script.mtcs.get_m1m3_actuator_ids()),
+            secondaryTest=[BumpTest.NOTTESTED]
+            * len(self.script.mtcs.get_m1m3_actuator_secondary_ids()),
+            primaryTestTimestamps=[1760000000.0]
+            * len(self.script.mtcs.get_m1m3_actuator_ids()),
+            secondaryTestTimestamps=[1760000000.0]
+            * len(self.script.mtcs.get_m1m3_actuator_secondary_ids()),
+        )
+        return _mtm1m3_evt_force_actuator_bump_test_status
 
     async def get_m1m3_detailed_state(self, *args, **kwags):
         return types.SimpleNamespace(detailedState=DetailedStates.PARKED)
@@ -421,6 +461,13 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                     "secondary_index": None,
                     "primary_failure": "FAILED",  # Old XML failure
                     "secondary_failure": None,
+                    "primary_timestamp": 1760000000.0,
+                    "secondary_timestamp": None,
+                    "primary_plot_url": self.construct_url(
+                        self.script.m1m3_actuator_ids.index(101), "z"
+                    ),
+                    "secondary_plot_url": None,
+                    "orientation": FAOrientation.NA.name,
                 },
                 218: {
                     "type": "DAA",
@@ -430,6 +477,13 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                     ),
                     "primary_failure": "FAILED",  # Old XML failure
                     "secondary_failure": None,
+                    "primary_timestamp": 1760000000.0,
+                    "secondary_timestamp": 1760000000.0,
+                    "primary_plot_url": self.construct_url(
+                        self.script.m1m3_actuator_ids.index(218), "z"
+                    ),
+                    "secondary_plot_url": None,
+                    "orientation": FAOrientation.Y_PLUS.name,
                 },
                 220: {
                     "type": "DAA",
@@ -439,6 +493,15 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                     ),
                     "primary_failure": "FAILED",  # Old XML failure
                     "secondary_failure": "FAILED",  # Old XML failure
+                    "primary_timestamp": 1760000000.0,
+                    "secondary_timestamp": 1760000000.0,
+                    "primary_plot_url": self.construct_url(
+                        self.script.m1m3_actuator_ids.index(220), "z"
+                    ),
+                    "secondary_plot_url": self.construct_url(
+                        self.script.m1m3_secondary_actuator_ids.index(220), "y"
+                    ),
+                    "orientation": FAOrientation.Y_PLUS.name,
                 },
                 330: {
                     "type": "DAA",
@@ -448,6 +511,13 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                     ),
                     "primary_failure": None,
                     "secondary_failure": "FAILED",  # Old XML failure
+                    "primary_timestamp": 1760000000.0,
+                    "secondary_timestamp": 1760000000.0,
+                    "primary_plot_url": None,
+                    "secondary_plot_url": self.construct_url(
+                        self.script.m1m3_secondary_actuator_ids.index(330), "y"
+                    ),
+                    "orientation": FAOrientation.Y_PLUS.name,
                 },
             }
             assert self.script.failures == expected_failures
@@ -516,6 +586,13 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                     "secondary_index": None,
                     "primary_failure": "FAILED_TESTEDPOSITIVE_OVERSHOOT",
                     "secondary_failure": None,
+                    "primary_timestamp": 1760000000.0,
+                    "secondary_timestamp": None,
+                    "primary_plot_url": self.construct_url(
+                        self.script.m1m3_actuator_ids.index(101), "z"
+                    ),
+                    "secondary_plot_url": None,
+                    "orientation": FAOrientation.NA.name,
                 },
                 218: {
                     "type": "DAA",
@@ -525,6 +602,13 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                     ),
                     "primary_failure": "FAILED_TESTEDPOSITIVE_OVERSHOOT",
                     "secondary_failure": None,
+                    "primary_timestamp": 1760000000.0,
+                    "secondary_timestamp": 1760000000.0,
+                    "primary_plot_url": self.construct_url(
+                        self.script.m1m3_actuator_ids.index(218), "z"
+                    ),
+                    "secondary_plot_url": None,
+                    "orientation": FAOrientation.Y_PLUS.name,
                 },
                 220: {
                     "type": "DAA",
@@ -534,6 +618,15 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                     ),
                     "primary_failure": "FAILED_TESTEDPOSITIVE_OVERSHOOT",
                     "secondary_failure": "FAILED_TESTEDNEGATIVE_OVERSHOOT",
+                    "primary_timestamp": 1760000000.0,
+                    "secondary_timestamp": 1760000000.0,
+                    "primary_plot_url": self.construct_url(
+                        self.script.m1m3_actuator_ids.index(220), "z"
+                    ),
+                    "secondary_plot_url": self.construct_url(
+                        self.script.m1m3_secondary_actuator_ids.index(220), "y"
+                    ),
+                    "orientation": FAOrientation.Y_PLUS.name,
                 },
                 330: {
                     "type": "DAA",
@@ -543,6 +636,13 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                     ),
                     "primary_failure": None,
                     "secondary_failure": "FAILED_TESTEDNEGATIVE_OVERSHOOT",
+                    "primary_timestamp": 1760000000.0,
+                    "secondary_timestamp": 1760000000.0,
+                    "primary_plot_url": None,
+                    "secondary_plot_url": self.construct_url(
+                        self.script.m1m3_secondary_actuator_ids.index(330), "y"
+                    ),
+                    "orientation": FAOrientation.Y_PLUS.name,
                 },
             }
 
@@ -563,6 +663,11 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                         if details["secondary_failure"] is not None
                         else None
                     ),
+                    "primary_timestamp": details["primary_timestamp"],
+                    "secondary_timestamp": details["secondary_timestamp"],
+                    "primary_plot_url": details["primary_plot_url"],
+                    "secondary_plot_url": details["secondary_plot_url"],
+                    "orientation": details["orientation"],
                 }
 
             assert actual_failures == expected_failures
@@ -600,7 +705,7 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
 
             # Define new failure sets for granular failures
             self.failed_primary_test_new = {101, 218, 220}
-            self.failed_secondary_test_new = {220, 330}
+            self.failed_secondary_test_new = {220, 330, 335}
 
             # Override the bump test mocks with the new XML versions
             self.script.mtcs.run_m1m3_actuator_bump_test = unittest.mock.AsyncMock(
@@ -637,6 +742,13 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                     "secondary_index": None,
                     "primary_failure": "FAILED_TESTEDPOSITIVE_OVERSHOOT",
                     "secondary_failure": None,
+                    "primary_timestamp": 1760000000.0,
+                    "secondary_timestamp": None,
+                    "primary_plot_url": self.construct_url(
+                        self.script.m1m3_actuator_ids.index(101), "z"
+                    ),
+                    "secondary_plot_url": None,
+                    "orientation": FAOrientation.NA.name,
                 },
                 218: {
                     "type": "DAA",
@@ -646,6 +758,13 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                     ),
                     "primary_failure": "FAILED_TESTEDPOSITIVE_OVERSHOOT",
                     "secondary_failure": None,
+                    "primary_timestamp": 1760000000.0,
+                    "secondary_timestamp": 1760000000.0,
+                    "primary_plot_url": self.construct_url(
+                        self.script.m1m3_actuator_ids.index(218), "z"
+                    ),
+                    "secondary_plot_url": None,
+                    "orientation": FAOrientation.Y_PLUS.name,
                 },
                 220: {
                     "type": "DAA",
@@ -655,6 +774,15 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                     ),
                     "primary_failure": "FAILED_TESTEDPOSITIVE_OVERSHOOT",
                     "secondary_failure": "FAILED_TESTEDNEGATIVE_OVERSHOOT",
+                    "primary_timestamp": 1760000000.0,
+                    "secondary_timestamp": 1760000000.0,
+                    "primary_plot_url": self.construct_url(
+                        self.script.m1m3_actuator_ids.index(220), "z"
+                    ),
+                    "secondary_plot_url": self.construct_url(
+                        self.script.m1m3_secondary_actuator_ids.index(220), "y"
+                    ),
+                    "orientation": FAOrientation.Y_PLUS.name,
                 },
                 330: {
                     "type": "DAA",
@@ -664,6 +792,29 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                     ),
                     "primary_failure": None,
                     "secondary_failure": "FAILED_TESTEDNEGATIVE_OVERSHOOT",
+                    "primary_timestamp": 1760000000.0,
+                    "secondary_timestamp": 1760000000.0,
+                    "primary_plot_url": None,
+                    "secondary_plot_url": self.construct_url(
+                        self.script.m1m3_secondary_actuator_ids.index(330), "y"
+                    ),
+                    "orientation": FAOrientation.Y_PLUS.name,
+                },
+                335: {
+                    "type": "DAA",
+                    "primary_index": self.script.m1m3_actuator_ids.index(335),
+                    "secondary_index": self.script.m1m3_secondary_actuator_ids.index(
+                        335
+                    ),
+                    "primary_failure": None,
+                    "secondary_failure": "FAILED_TESTEDNEGATIVE_OVERSHOOT",
+                    "primary_timestamp": 1760000000.0,
+                    "secondary_timestamp": 1760000000.0,
+                    "primary_plot_url": None,
+                    "secondary_plot_url": self.construct_url(
+                        self.script.m1m3_secondary_actuator_ids.index(335), "x"
+                    ),
+                    "orientation": FAOrientation.X_PLUS.name,
                 },
             }
             assert self.script.failures == expected_failures
@@ -699,3 +850,18 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                 self.bump_test_status.testState[actuator_index] == BumpTest.NOTTESTED
                 for actuator_index in not_expected_to_test_indexes
             )
+
+    def construct_url(self, actuator_id, direction):
+        endpoint_url = "https://s3.amazonaws.com"
+        bucket_name = "rubinobs-lfa-mock"
+        today = datetime.now()
+        key = (
+            f"{self.script.salinfo.name}:{self.script.salinfo.index}"
+            f"/actuator_id_{actuator_id}_{direction}"
+            f"/{today.year}/{today.month:02d}/{today.day:02d}"
+            f"/{self.script.salinfo.name}:{self.script.salinfo.index}"
+            f"_actuator_id_{actuator_id}_{direction}_.png"
+        )
+        url = f"{endpoint_url}/{bucket_name}/{key}"
+
+        return url
