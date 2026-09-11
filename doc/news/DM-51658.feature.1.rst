@@ -1,0 +1,4 @@
+Added ``daytime_checkout/lsstcam_checkout.py`` to automate LSSTCam image acquisition checkout and OODS ingestion.
+It performs the following steps:
+ * it checks that MTCamera CSCs are enabled.
+ * it takes two ``dark`` exposures and verifies science and WFS ingestion using MTOODS and WFOODS.
