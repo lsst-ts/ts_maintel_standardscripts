@@ -79,8 +79,13 @@ class TestLsstCamCheckout(
         setattr(self, event_count_key, current_count + 1)
 
         if current_count < 5:
-            raft = f"R{current_count:02d}"
-            sensor = f"S{current_count:02d}"
+            raft, sensor = (
+                ("R01", "S00"),
+                ("R01", "S01"),
+                ("R01", "S02"),
+                ("R01", "S10"),
+                ("R01", "S11"),
+            )[current_count]
         else:
             guider_index = current_count - 5
             raft = ("R00", "R04")[guider_index]
@@ -311,6 +316,8 @@ class TestLsstCamCheckout(
                 types.SimpleNamespace(raft="R00", sensor="SG1", statusCode=0),
                 types.SimpleNamespace(raft="R44", sensor="SW0", statusCode=0),
                 types.SimpleNamespace(raft="R44", sensor="SW1", statusCode=0),
+                types.SimpleNamespace(raft="R00", sensor="S00", statusCode=0),
+                types.SimpleNamespace(raft="R01", sensor="S99", statusCode=0),
             ]
 
             science, guider, wfs = self.script._count_sensor_types(events)
@@ -378,6 +385,15 @@ class TestLsstCamCheckout(
             assert "within 30 seconds after science ingestion completed" in (
                 warning.call_args.args[0]
             )
+            assert (
+                "Guider sensors not successfully ingested: "
+                "{'R00': ['SG1'], 'R04': ['SG0', 'SG1'], "
+                "'R40': ['SG0', 'SG1'], 'R44': ['SG0', 'SG1']}."
+                in warning.call_args.args[0]
+            )
+            assert "Guider sensors ingested: {'R00': ['SG0']}." in (
+                warning.call_args.args[0]
+            )
 
     async def test_validate_ingestion_warns_when_no_guiders(self):
         """Explain that the camera may not be configured for guider data."""
@@ -426,6 +442,10 @@ class TestLsstCamCheckout(
             assert "may not be configured to produce guider data" in (
                 warning.call_args.args[0]
             )
+            assert "Guider sensors not successfully ingested:" in (
+                warning.call_args.args[0]
+            )
+            assert "Guider sensors ingested: {}." in warning.call_args.args[0]
 
     async def test_validate_ingestion_ignores_failed_status(self):
         """An OODS event with nonzero status does not satisfy the count."""
@@ -504,6 +524,64 @@ class TestLsstCamCheckout(
 
             warning.assert_called_once()
             assert "science-sensor ingestion" in warning.call_args.args[0]
+
+    async def test_validate_ingestion_reports_missing_science_and_wfs(self):
+        """Report expected science and WFS sensors that did not ingest."""
+        async with self.make_script():
+            await self.configure_script()
+
+            obsid = f"MC_O_{self.dayobs}_000001"
+            event_time = utils.current_tai()
+            missing_science = {
+                ("R12", "S11"),
+                ("R14", "S10"),
+                ("R24", "S01"),
+            }
+            missing_wfs = {("R44", "SW1")}
+
+            def make_event(pair):
+                return types.SimpleNamespace(
+                    private_sndStamp=event_time,
+                    obsid=obsid,
+                    raft=pair[0],
+                    sensor=pair[1],
+                    statusCode=0,
+                )
+
+            mtoods_events = [
+                make_event(pair)
+                for pair in self.script._EXPECTED_SCIENCE_SENSOR_PAIRS - missing_science
+            ]
+            wfoods_events = [
+                make_event(pair)
+                for pair in self.script._EXPECTED_WFS_SENSOR_PAIRS - missing_wfs
+            ]
+
+            with unittest.mock.patch.object(self.script.log, "warning") as warning:
+                with pytest.raises(RuntimeError, match="ingestion incomplete"):
+                    self.script._validate_ingestion(
+                        mtoods_events=mtoods_events,
+                        mtoods_obsid=obsid,
+                        wfoods_events=wfoods_events,
+                        wfoods_obsid=obsid,
+                        expected_science=self.script.expected_dark_ingest_science,
+                        expected_wfs=self.script.expected_dark_ingest_wfs,
+                        image_label="dark",
+                    )
+
+            assert warning.call_count == 2
+            science_warning = warning.call_args_list[0].args[0]
+            wfs_warning = warning.call_args_list[1].args[0]
+            assert (
+                "Science sensors not successfully ingested: "
+                "{'R12': ['S11'], 'R14': ['S10'], 'R24': ['S01']}." in science_warning
+            )
+            assert "Science sensors ingested:" in science_warning
+            assert (
+                "WFS sensors not successfully ingested: {'R44': ['SW1']}."
+                in wfs_warning
+            )
+            assert "WFS sensors ingested:" in wfs_warning
 
     async def test_validate_ingestion_requires_matching_obsids(self):
         """MTOODS and WFOODS events cannot be mixed across exposures."""

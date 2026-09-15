@@ -22,7 +22,6 @@
 __all__ = ["BaseLsstCamCheckout"]
 
 import asyncio
-import re
 from contextlib import asynccontextmanager
 
 import yaml
@@ -65,9 +64,53 @@ class BaseLsstCamCheckout(salobj.BaseScript):
     coverage, without opening the shutter.
     """
 
-    _SCIENCE_SENSOR_PATTERN = re.compile(r"^S\d{2}$")
-    _GUIDER_SENSOR_PATTERN = re.compile(r"^SG\d$")
-    _WFS_SENSOR_PATTERN = re.compile(r"^SW\d$")
+    _EXPECTED_SCIENCE_SENSOR_PAIRS = frozenset(
+        (raft, sensor)
+        for raft in (
+            "R01",
+            "R02",
+            "R03",
+            "R10",
+            "R11",
+            "R12",
+            "R13",
+            "R14",
+            "R20",
+            "R21",
+            "R22",
+            "R23",
+            "R24",
+            "R30",
+            "R31",
+            "R32",
+            "R33",
+            "R34",
+            "R41",
+            "R42",
+            "R43",
+        )
+        for sensor in (
+            "S00",
+            "S01",
+            "S02",
+            "S10",
+            "S11",
+            "S12",
+            "S20",
+            "S21",
+            "S22",
+        )
+    )
+    _EXPECTED_WFS_SENSOR_PAIRS = frozenset(
+        (raft, sensor)
+        for raft in ("R00", "R04", "R40", "R44")
+        for sensor in ("SW0", "SW1")
+    )
+    _EXPECTED_GUIDER_SENSOR_PAIRS = frozenset(
+        (raft, sensor)
+        for raft in ("R00", "R04", "R40", "R44")
+        for sensor in ("SG0", "SG1")
+    )
 
     def __init__(self, index: int, descr: str) -> None:
         super().__init__(index=index, descr=descr)
@@ -76,9 +119,9 @@ class BaseLsstCamCheckout(salobj.BaseScript):
         self.dark_exptime: float | None = None
         self.ndarks: int | None = None
         self.ingestion_timeout = 120  # max time to wait for ingestion events
-        self.expected_dark_ingest_science = 21 * 9
-        self.expected_dark_ingest_wfs = 4 * 2
-        self.expected_dark_ingest_guider = 4 * 2
+        self.expected_dark_ingest_science = len(self._EXPECTED_SCIENCE_SENSOR_PAIRS)
+        self.expected_dark_ingest_wfs = len(self._EXPECTED_WFS_SENSOR_PAIRS)
+        self.expected_dark_ingest_guider = len(self._EXPECTED_GUIDER_SENSOR_PAIRS)
         self.guider_ingestion_grace_period = 30  # seconds
         self.program = None
         self.reason = None
@@ -377,14 +420,14 @@ class BaseLsstCamCheckout(salobj.BaseScript):
             arrived.
         """
         if oods_name == "MTOODS":
-            required_sensor_pattern = self._SCIENCE_SENSOR_PATTERN
+            required_sensor_pairs = self._EXPECTED_SCIENCE_SENSOR_PAIRS
             required_expected_count = self.expected_dark_ingest_science
-            guider_sensor_pattern = self._GUIDER_SENSOR_PATTERN
+            guider_sensor_pairs = self._EXPECTED_GUIDER_SENSOR_PAIRS
             guider_expected_count = self.expected_dark_ingest_guider
         elif oods_name == "WFOODS":
-            required_sensor_pattern = self._WFS_SENSOR_PATTERN
+            required_sensor_pairs = self._EXPECTED_WFS_SENSOR_PAIRS
             required_expected_count = self.expected_dark_ingest_wfs
-            guider_sensor_pattern = None
+            guider_sensor_pairs = frozenset()
             guider_expected_count = 0
         else:
             raise ValueError(f"Unsupported OODS service: {oods_name}.")
@@ -429,12 +472,9 @@ class BaseLsstCamCheckout(salobj.BaseScript):
                 ingestion_events.append(ingest_event)
                 if ingest_event.statusCode == 0:
                     sensor_pair = (ingest_event.raft, ingest_event.sensor)
-                    if required_sensor_pattern.fullmatch(ingest_event.sensor):
+                    if sensor_pair in required_sensor_pairs:
                         required_pairs.add(sensor_pair)
-                    if (
-                        guider_sensor_pattern is not None
-                        and guider_sensor_pattern.fullmatch(ingest_event.sensor)
-                    ):
+                    if sensor_pair in guider_sensor_pairs:
                         guider_pairs.add(sensor_pair)
                 self.log.debug(
                     f"Collected {oods_name} ingestion event for "
@@ -456,7 +496,7 @@ class BaseLsstCamCheckout(salobj.BaseScript):
             pass
 
         if (
-            guider_sensor_pattern is not None
+            guider_sensor_pairs
             and len(required_pairs) >= required_expected_count
             and len(guider_pairs) < guider_expected_count
         ):
@@ -548,6 +588,9 @@ class BaseLsstCamCheckout(salobj.BaseScript):
 
         science_pairs, guider_pairs, _ = self._count_sensor_types(mtoods_events)
         _, _, wfs_pairs = self._count_sensor_types(wfoods_events)
+        missing_science_pairs = self._EXPECTED_SCIENCE_SENSOR_PAIRS - science_pairs
+        missing_guider_pairs = self._EXPECTED_GUIDER_SENSOR_PAIRS - guider_pairs
+        missing_wfs_pairs = self._EXPECTED_WFS_SENSOR_PAIRS - wfs_pairs
         science_count = len(science_pairs)
         guider_count = len(guider_pairs)
         wfs_count = len(wfs_pairs)
@@ -563,6 +606,8 @@ class BaseLsstCamCheckout(salobj.BaseScript):
                 self.log.warning(
                     f"Incomplete {image_label} science-sensor ingestion for obsid "
                     f"{observed_obsid}.\n"
+                    f"Science sensors not successfully ingested: "
+                    f"{self._group_by_raft(missing_science_pairs)}.\n"
                     f"Science sensors ingested: "
                     f"{self._group_by_raft(science_pairs)}."
                 )
@@ -570,6 +615,8 @@ class BaseLsstCamCheckout(salobj.BaseScript):
                 self.log.warning(
                     f"Incomplete {image_label} WFS ingestion for obsid "
                     f"{observed_obsid}.\n"
+                    f"WFS sensors not successfully ingested: "
+                    f"{self._group_by_raft(missing_wfs_pairs)}.\n"
                     f"WFS sensors ingested: "
                     f"{self._group_by_raft(wfs_pairs)}."
                 )
@@ -591,6 +638,11 @@ class BaseLsstCamCheckout(salobj.BaseScript):
             )
         elif guider_count == 0:
             self.log.warning(
+                f"Incomplete {image_label} guider-sensor ingestion for obsid "
+                f"{observed_obsid}.\n"
+                f"Guider sensors not successfully ingested: "
+                f"{self._group_by_raft(missing_guider_pairs)}.\n"
+                f"Guider sensors ingested: {self._group_by_raft(guider_pairs)}.\n\n"
                 f"No guider sensor ingestions were observed within "
                 f"{self.guider_ingestion_grace_period} seconds after science "
                 f"ingestion completed for obsid {observed_obsid}. LSSTCam "
@@ -600,6 +652,11 @@ class BaseLsstCamCheckout(salobj.BaseScript):
             )
         else:
             self.log.warning(
+                f"Incomplete {image_label} guider-sensor ingestion for obsid "
+                f"{observed_obsid}.\n"
+                f"Guider sensors not successfully ingested: "
+                f"{self._group_by_raft(missing_guider_pairs)}.\n"
+                f"Guider sensors ingested: {self._group_by_raft(guider_pairs)}.\n\n"
                 f"Observed {guider_count}/{self.expected_dark_ingest_guider} "
                 f"guider sensor ingestions within "
                 f"{self.guider_ingestion_grace_period} seconds after science "
@@ -665,11 +722,11 @@ class BaseLsstCamCheckout(salobj.BaseScript):
             pair = (event.raft, event.sensor)
             if event.statusCode != 0:
                 continue
-            if self._SCIENCE_SENSOR_PATTERN.fullmatch(event.sensor):
+            if pair in self._EXPECTED_SCIENCE_SENSOR_PAIRS:
                 science_pairs.add(pair)
-            elif self._GUIDER_SENSOR_PATTERN.fullmatch(event.sensor):
+            elif pair in self._EXPECTED_GUIDER_SENSOR_PAIRS:
                 guider_pairs.add(pair)
-            elif self._WFS_SENSOR_PATTERN.fullmatch(event.sensor):
+            elif pair in self._EXPECTED_WFS_SENSOR_PAIRS:
                 wfs_pairs.add(pair)
 
         return science_pairs, guider_pairs, wfs_pairs
