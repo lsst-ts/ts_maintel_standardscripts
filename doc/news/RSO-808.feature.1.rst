@@ -1,0 +1,1 @@
+Added ``target_az``, ``target_el``, and ``target_rot`` configuration parameters to ``maintel/prepare_for/onsky.py`` so the final on-sky preparation position can be configured while using the ``MTCS`` defaults in the ScriptQueue schema.
