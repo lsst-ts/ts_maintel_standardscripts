@@ -362,6 +362,6 @@ class BaseTelescopeCheckout(salobj.BaseScript):
             if self.include_dome:
                 await self.mtcs.disable_dome_following()
             else:
-                await self.mtcs.disable_dome_following_if_dome_enabled()
+                await self.mtcs.disable_dome_following(only_if_enabled=True)
         except Exception:
             self.log.exception("Unable to disable dome following during cleanup.")

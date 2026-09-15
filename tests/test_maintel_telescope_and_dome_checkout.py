@@ -78,7 +78,6 @@ class TestTelescopeAndDomeCheckout(
         self.script.mtcs.check_tracking = mock.AsyncMock()
         self.script.mtcs.stop_tracking = mock.AsyncMock()
         self.script.mtcs.disable_dome_following = mock.AsyncMock()
-        self.script.mtcs.disable_dome_following_if_dome_enabled = mock.AsyncMock()
 
     async def test_configure_defaults(self):
         async with self.make_script():
@@ -299,8 +298,9 @@ class TestTelescopeAndDomeCheckout(
             await self.run_script(expected_final_state=ScriptState.FAILED)
 
             self.script.mtcs.stop_tracking.assert_awaited_once_with()
-            self.script.mtcs.disable_dome_following.assert_not_awaited()
-            self.script.mtcs.disable_dome_following_if_dome_enabled.assert_awaited_once_with()
+            self.script.mtcs.disable_dome_following.assert_awaited_once_with(
+                only_if_enabled=True
+            )
             self.script.mtcs.set_telescope_and_dome_checkout_final_state.assert_not_awaited()
 
 
