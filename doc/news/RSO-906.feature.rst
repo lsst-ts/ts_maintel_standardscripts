@@ -1,0 +1,1 @@
+Updated ``track_target_and_take_image_lsstcam.py`` to wait for the camera shutter to be closed before starting operations and refactored ``_take_data`` to finish early when the last image starts closing the shutter, allowing the script to end early and the next script to start.
