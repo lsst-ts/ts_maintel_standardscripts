@@ -34,6 +34,7 @@ from lsst.ts.maintel.standardscripts.track_target_and_take_image_lsstcam import 
     TrackTargetAndTakeImageLSSTCam,
 )
 from lsst.ts.observatory.control import ROI, ROICommon, ROISpec
+from lsst.ts.observatory.control.base_camera import CameraShutterDetailedState
 from lsst.ts.observatory.control.utils import RotType
 from lsst.ts.xml.enums.MTAOS import ClosedLoopState
 from lsst.ts.xml.enums.Script import ScriptState
@@ -66,6 +67,10 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
         self.mtaos_dof_set = asyncio.Event()
         self.mtaos_dof_set.clear()
         self.mtaos_closed_loop_lock = asyncio.Lock()
+        self.camera_shutter_detailed_state = types.SimpleNamespace(
+            substate=CameraShutterDetailedState.CLOSED
+        )
+        self.camera_shutter_detailed_state_event = asyncio.Event()
         self.aos_closed_loop_tasks = list()
         self.rotator_velocity = 10.0  # deg/s
         self.rot_sky_emulate_zero = 45.0
@@ -685,6 +690,16 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
                 "evt_degreeOfFreedom.next.side_effect": self.next_dof,
             }
         )
+        self.script.lsstcam.rem = types.SimpleNamespace(
+            mtcamera=unittest.mock.AsyncMock()
+        )
+        self.script.lsstcam.rem.mtcamera.configure_mock(
+            **{
+                "evt_shutterDetailedState.aget.side_effect": self.aget_shutter_detailed_state,
+                "evt_shutterDetailedState.next.side_effect": self.next_shutter_detailed_state,
+                "evt_shutterDetailedState.flush.side_effect": self.flush_shutter_detailed_state,
+            }
+        )
 
         yield
 
@@ -738,6 +753,21 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
         self.aos_closed_loop_tasks.append(
             asyncio.create_task(self.emulate_aos_closed_loop(self.visit_id))
         )
+        self.camera_shutter_detailed_state.substate = CameraShutterDetailedState.OPENING
+        await asyncio.sleep(0.5)
+        self.camera_shutter_detailed_state_event.set()
+
+        self.camera_shutter_detailed_state.substate = CameraShutterDetailedState.OPEN
+        await asyncio.sleep(0.5)
+        self.camera_shutter_detailed_state_event.set()
+
+        self.camera_shutter_detailed_state.substate = CameraShutterDetailedState.CLOSING
+        await asyncio.sleep(0.5)
+        self.camera_shutter_detailed_state_event.set()
+
+        self.camera_shutter_detailed_state.substate = CameraShutterDetailedState.CLOSED
+        await asyncio.sleep(0.5)
+        self.camera_shutter_detailed_state_event.set()
 
         return [self.visit_id]
 
@@ -783,6 +813,20 @@ class TestMainTelTrackTargetAndTakeImageLSSTCam(
     async def next_closed_loop_state(self, flush, timeout):
         await asyncio.sleep(0.5)
         return types.SimpleNamespace(state=self.mtaos_closed_loop_state)
+
+    async def aget_shutter_detailed_state(self, timeout):
+        return self.camera_shutter_detailed_state
+
+    async def next_shutter_detailed_state(self, flush, timeout):
+        if flush:
+            self.camera_shutter_detailed_state.clear()
+        async with asyncio.timeout(timeout):
+            await self.camera_shutter_detailed_state_event.wait()
+        self.camera_shutter_detailed_state_event.clear()
+        return self.camera_shutter_detailed_state
+
+    def flush_shutter_detailed_state(self):
+        self.camera_shutter_detailed_state_event.clear()
 
     async def get_dof(self, timeout):
         return self.mtaos_dof
