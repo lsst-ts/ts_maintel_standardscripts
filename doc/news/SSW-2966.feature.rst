@@ -1,0 +1,2 @@
+Updated the M1M3 ``check_actuators`` bump test to skip and report disabled force actuators.
+The script now continues testing enabled actuators instead of timing out while waiting for disabled ones.
