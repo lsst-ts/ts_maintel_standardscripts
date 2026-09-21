@@ -74,6 +74,9 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
         self.script.mtcs.assert_all_enabled = unittest.mock.AsyncMock()
         self.script.mtcs.assert_m1m3_detailed_state = unittest.mock.AsyncMock()
         self.script.mtcs.wait_m1m3_actuator_in_testing_state = unittest.mock.AsyncMock()
+        self.script.mtcs.get_m1m3_enabled_actuator_ids = unittest.mock.AsyncMock(
+            return_value=self.script.m1m3_actuator_ids
+        )
 
         self.script.mtcs.get_m1m3_bump_test_status = unittest.mock.AsyncMock(
             side_effect=self.mock_get_m1m3_bump_test_status
@@ -389,6 +392,99 @@ class TestCheckActuators(BaseScriptTestCase, unittest.IsolatedAsyncioTestCase):
                 self.script.mtcs.run_m1m3_actuator_bump_test.assert_has_calls(
                     expected_calls
                 )
+
+    async def test_run_explicit_list_skips_disabled_actuator(self):
+        """A disabled actuator in an explicit list is reported and skipped."""
+        async with self.make_script():
+            await self.configure_script(actuators=[101, 218, 220])
+            self.script.mtcs.get_m1m3_enabled_actuator_ids.return_value = [101, 220]
+
+            with self.assertLogs(self.script.log, level=logging.WARNING) as logs:
+                await self.run_script()
+
+            assert self.script.skipped_disabled == [218]
+            assert self.script.actuators_to_test == [101, 220]
+            assert any("SKIPPED_DISABLED: [218]" in line for line in logs.output)
+            self.script.mtcs.get_m1m3_enabled_actuator_ids.assert_awaited_once_with()
+            assert self.script.mtcs.run_m1m3_actuator_bump_test.await_count == 2
+            self.script.mtcs.run_m1m3_actuator_bump_test.assert_has_awaits(
+                [
+                    unittest.mock.call(actuator_id=101, primary=True, secondary=False),
+                    unittest.mock.call(actuator_id=220, primary=True, secondary=True),
+                ]
+            )
+            assert self.script.mtcs.wait_m1m3_actuator_in_testing_state.await_count == 2
+
+    async def test_run_all_skips_disabled_actuator(self):
+        """The all selection mode reports and skips disabled actuators."""
+        async with self.make_script():
+            selected_actuators = [101, 218, 220]
+            ignored_actuators = [
+                actuator_id
+                for actuator_id in self.script.m1m3_actuator_ids
+                if actuator_id not in selected_actuators
+            ]
+            await self.configure_script(
+                actuators="all", ignore_actuators=ignored_actuators
+            )
+            self.script.mtcs.get_m1m3_enabled_actuator_ids.return_value = [101, 220]
+
+            await self.run_script()
+
+            assert self.script.skipped_disabled == [218]
+            assert self.script.actuators_to_test == [101, 220]
+            assert self.script.mtcs.run_m1m3_actuator_bump_test.await_count == 2
+
+    async def test_run_last_failed_skips_disabled_before_status_check(self):
+        """Disabled actuators are skipped before selecting last failures."""
+        async with self.make_script():
+            selected_actuators = [101, 218, 220]
+            ignored_actuators = [
+                actuator_id
+                for actuator_id in self.script.m1m3_actuator_ids
+                if actuator_id not in selected_actuators
+            ]
+            await self.configure_script(
+                actuators="last_failed", ignore_actuators=ignored_actuators
+            )
+            self.script.mtcs.get_m1m3_enabled_actuator_ids.return_value = [101, 220]
+            self.script.actuator_last_test_failed = unittest.mock.AsyncMock(
+                side_effect=lambda actuator_id: actuator_id == 101
+            )
+
+            await self.run_script()
+
+            assert self.script.skipped_disabled == [218]
+            assert self.script.actuators_to_test == [101]
+            self.script.actuator_last_test_failed.assert_has_awaits(
+                [unittest.mock.call(101), unittest.mock.call(220)]
+            )
+            assert unittest.mock.call(218) not in (
+                self.script.actuator_last_test_failed.await_args_list
+            )
+            self.script.mtcs.run_m1m3_actuator_bump_test.assert_awaited_once_with(
+                actuator_id=101, primary=True, secondary=False
+            )
+
+    async def test_run_all_selected_actuators_disabled(self):
+        """A selection containing only disabled actuators succeeds."""
+        async with self.make_script():
+            await self.configure_script(actuators=[218])
+            self.script.mtcs.get_m1m3_enabled_actuator_ids.return_value = []
+
+            with self.assertLogs(self.script.log, level=logging.INFO) as logs:
+                await self.run_script()
+
+            assert self.script.skipped_disabled == [218]
+            assert self.script.actuators_to_test == []
+            assert any(
+                "No enabled actuators were selected for testing." in line
+                for line in logs.output
+            )
+            assert any("SKIPPED_DISABLED: [218]" in line for line in logs.output)
+            self.script.mtcs.run_m1m3_actuator_bump_test.assert_not_awaited()
+            self.script.mtcs.wait_m1m3_actuator_in_testing_state.assert_not_awaited()
+            self.script.mtcs.get_m1m3_bump_test_status.assert_not_awaited()
 
     async def test_run_with_failed_actuators_old_xml(self):
         """Test the script with actuators that fail the bump test.

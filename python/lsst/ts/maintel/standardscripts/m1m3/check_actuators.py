@@ -76,6 +76,9 @@ class CheckActuators(BaseBlockScript):
         # Actuators that will be effectively tested
         self.actuators_to_test = None
 
+        # Selected actuators that are disabled and will not be tested
+        self.skipped_disabled = []
+
         # Dictionary to capture failures with full details
         self.failures = {}  # Initialize the failures attribute
 
@@ -278,6 +281,23 @@ class CheckActuators(BaseBlockScript):
         )
         self.log.info(f"Current M1M3 detailed state: {detailed_state!r}.")
 
+        # Take one snapshot of the enabled force actuators for this run. Force
+        # actuator enablement is not expected to change while the test runs.
+        enabled_actuator_ids = set(await self.mtcs.get_m1m3_enabled_actuator_ids())
+        self.skipped_disabled = [
+            actuator_id
+            for actuator_id in self.actuators_to_test
+            if actuator_id not in enabled_actuator_ids
+        ]
+        self.actuators_to_test = [
+            actuator_id
+            for actuator_id in self.actuators_to_test
+            if actuator_id in enabled_actuator_ids
+        ]
+
+        if self.skipped_disabled:
+            self.log.warning(f"SKIPPED_DISABLED: {self.skipped_disabled!r}")
+
         # Filter actuator_to_test when the last_failed option is used
         if self.config.actuators == "last_failed":
             actuators_mask = await asyncio.gather(
@@ -421,9 +441,19 @@ class CheckActuators(BaseBlockScript):
             f"M1M3 bump test completed. It took {elapsed_time:.2f} seconds."
         )
 
+        skipped_disabled_report = (
+            f"\nSKIPPED_DISABLED: {self.skipped_disabled!r}"
+            if self.skipped_disabled
+            else ""
+        )
+
         # Generating final report from failures
         if not self.failures:
-            self.log.info("All actuators PASSED the bump test.")
+            if self.actuators_to_test:
+                result_message = "All tested actuators PASSED the bump test."
+            else:
+                result_message = "No enabled actuators were selected for testing."
+            self.log.info(f"{result_message}{skipped_disabled_report}")
         else:
             # Collect the failed actuator IDs for the header
             failed_actuators_id = list(self.failures.keys())
@@ -442,6 +472,7 @@ class CheckActuators(BaseBlockScript):
             error_message = (
                 f"Actuators {sorted(failed_actuators_id)} FAILED the bump test.\n\n"
                 f"Failure Details:\n{failure_details or '  None'}"
+                f"{skipped_disabled_report}"
             )
 
             self.log.error(error_message)
