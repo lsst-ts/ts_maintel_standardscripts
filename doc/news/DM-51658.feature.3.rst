@@ -1,0 +1,3 @@
+Added ``LsstCamNightIngestionCheckout`` as a fast nighttime specialization of ``BaseLsstCamCheckout``.
+It takes one 5-second DARK exposure and verifies LSSTCam MTOODS and WFOODS ingestion.
+It is suitable to diagnose ingestion during nighttime operations.

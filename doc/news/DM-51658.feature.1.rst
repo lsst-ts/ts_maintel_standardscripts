@@ -1,0 +1,3 @@
+Added ``BaseLsstCamCheckout`` to provide the common implementation for LSSTCam checkout scripts.
+It checks the required LSSTCam CSCs, acquires DARK exposures, and independently validates each exposure's science-sensor ingestion in MTOODS and wavefront-sensor ingestion in WFOODS.
+Guider ingestion is also reported but does not determine whether a checkout succeeds.

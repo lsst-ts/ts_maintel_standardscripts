@@ -21,6 +21,7 @@
 
 from .apply_dof import *
 from .base_close_loop import *
+from .base_lsstcam_checkout import *
 from .change_filter_lsstcam import *
 from .close_loop_comcam import *
 from .close_loop_lsstcam import *
@@ -37,6 +38,7 @@ from .ensure_onsky_readiness import *
 from .focus_sweep_comcam import *
 from .focus_sweep_lsstcam import *
 from .home_both_axes import *
+from .lsstcam_night_ingestion_checkout import *
 from .move_p2p import *
 from .offline_comcam import *
 from .offline_mtcs import *
