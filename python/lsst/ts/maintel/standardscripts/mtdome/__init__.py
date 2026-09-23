@@ -20,12 +20,14 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 from .close_dome import *
+from .close_dome_louvers import *
 from .crawl_az import *
 from .disable_dome_following import *
 from .enable_dome_following import *
 from .home_dome import *
 from .offset_dome import *
 from .open_dome import *
+from .open_dome_louvers import *
 from .park_dome import *
 from .recover_from_controller_fault import *
 from .slew_dome import *
