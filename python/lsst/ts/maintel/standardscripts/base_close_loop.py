@@ -756,7 +756,7 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
 
             # If apply_corrections is true,
             # then we apply the corrections
-            if self.apply_corrections:
+            if self.apply_corrections and (i + 1 < self.max_iter):
                 self.log.info("Applying corrections...")
 
                 if checkpoint:
