@@ -262,12 +262,16 @@ class TestPrepareForVent(
             # initial telescope pointing no longer reads it back -- it
             # reuses the dome azimuth it just computed and commanded.
             self.script.get_dome_azimuth = AsyncMock(side_effect=[260.0, 180.0])
+            # wait_for_sun_elevation_high now runs before the wind-facing
+            # reposition (see vent_while_sun_sets), so its two reads come
+            # first; the wind-reposition's own fresh read (only sun_az is
+            # used, elevation is discarded) comes right after the wait ends.
             self.script.mtcs.get_sun_azel = Mock(
                 side_effect=[
                     (180.0, 45.0),  # run() preflight
-                    (270.0, 45.0),  # vent_while_sun_sets preflight (wind az)
                     (270.0, 10.0),  # wait_for_sun_elevation_high: initial, > HIGH
                     (270.0, 3.0),  # end of wait iteration: <= HIGH, wait exits
+                    (270.0, 3.0),  # fresh read for wind reposition (wind az)
                     (200.0, 3.0),  # main loop iter A: between HIGH and HORIZON
                     (45.0, -2.0),  # iter A end / iter B: at/below HORIZON (first)
                     (45.0, -3.0),  # iter B end / iter C: still at/below HORIZON
@@ -301,8 +305,8 @@ class TestPrepareForVent(
             ]
             assert slew_calls == [
                 initial_dome_az,  # preflight: away from sun, clamped
-                DOME_MAX_AZ,  # initial wind-facing positioning, clamped (200)
                 expected_wait_nudge,  # nudge while waiting for SUN_ELEVATION_HIGH
+                DOME_MAX_AZ,  # wind-facing positioning after the wait, clamped (200)
                 expected_main_nudge,  # nudge between HIGH and HORIZON
                 250.0,  # repositioned for wind after sunset, unclamped
             ]

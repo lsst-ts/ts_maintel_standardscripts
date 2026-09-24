@@ -160,12 +160,13 @@ class PrepareForVent(salobj.BaseScript):
     - "Closing mirror covers": before closing the mirror covers.
     - "Waiting for outside temperature to drop below in-dome temperature":
       before the temperature gate.
-    - "Positioning dome for the current wind direction": before the one-time
-      wind-facing dome slew at the start of venting.
     - "Sun at ... deg elevation, waiting ...s for sun to reach
       SUN_ELEVATION_HIGH ...": once per loop iteration while waiting for the
       sun to reach ``SUN_ELEVATION_HIGH`` (see `wait_for_sun_elevation_high`);
-      the shutter and louvers are not touched during this wait.
+      the dome stays at its away-from-sun position during this wait, only
+      nudged for sun-avoidance, and the shutter/louvers are not touched.
+    - "Positioning dome for the current wind direction": before the one-time
+      wind-facing dome slew, once the sun has reached ``SUN_ELEVATION_HIGH``.
     - "Venting: sun at ... deg elevation, ... deg azimuth; dome at ... deg
       azimuth": once per loop iteration between ``SUN_ELEVATION_HIGH`` and
       ``SUN_ELEVATION_HORIZON`` (see `vent_while_sun_sets`).
@@ -674,11 +675,13 @@ class PrepareForVent(salobj.BaseScript):
         below ``SUN_ELEVATION_HORIZON``; see below).
 
         The dome is repositioned for the wind (see `reposition_dome_for_wind`)
-        once, right before waiting for the sun to reach
-        ``SUN_ELEVATION_HIGH`` (see `wait_for_sun_elevation_high`, which
-        leaves the shutter/louvers untouched), and once more the first time
-        the sun is found at or below ``SUN_ELEVATION_HORIZON`` -- at which
-        point the telescope is also repositioned to match, since the
+        once, right after waiting for the sun to reach ``SUN_ELEVATION_HIGH``
+        (see `wait_for_sun_elevation_high`, which leaves the dome at
+        whatever azimuth `run` last pointed it to -- away from the sun --
+        only nudging it as needed for sun-avoidance while it waits, and
+        leaves the shutter/louvers untouched entirely), and once more the
+        first time the sun is found at or below ``SUN_ELEVATION_HORIZON`` --
+        at which point the telescope is also repositioned to match, since the
         sun-avoidance constraint no longer applies. In between, and on
         every other loop iteration while the sun is still above
         ``SUN_ELEVATION_HORIZON``, the dome is only nudged the minimum
@@ -691,11 +694,11 @@ class PrepareForVent(salobj.BaseScript):
         actually send a command when the desired state has changed since
         the last one sent.
         """
+        await self.wait_for_sun_elevation_high()
+
         sun_az, _ = self.mtcs.get_sun_azel()
         await self.checkpoint("Positioning dome for the current wind direction.")
         await self.reposition_dome_for_wind(sun_az, clamp_to_sun_avoidance_range=True)
-
-        await self.wait_for_sun_elevation_high()
 
         repositioned_for_wind_after_sunset = False
         sun_az, sun_el = self.mtcs.get_sun_azel()
