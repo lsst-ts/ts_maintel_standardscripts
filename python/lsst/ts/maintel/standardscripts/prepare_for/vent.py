@@ -1,6 +1,6 @@
-# This file is part of ts_maintel_standardscripts
+# This file is part of ts_maintel_standardscripts.
 #
-# Developed for the Vera Rubin Observatory.
+# Developed for the Vera C. Rubin Observatory Telescope and Site Systems.
 # This product includes software developed by the LSST Project
 # (https://www.lsst.org).
 # See the COPYRIGHT file at the top-level directory of this distribution
@@ -13,7 +13,7 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
@@ -22,11 +22,14 @@
 __all__ = ["PrepareForVent"]
 
 import asyncio
-import statistics
+import collections
+import enum
 
 import astropy.units as u
+import numpy as np
 import yaml
 from astroplan import Observer
+from astropy.stats import circmean
 from lsst.ts import salobj, utils
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.utils import angle_diff, angle_wrap_center
@@ -49,8 +52,6 @@ LOUVER_SUN_AVOIDANCE_ANGLE = 60.0
 LOUVER_SUN_EXPOSED_PERCENT = 50.0
 
 TEMPERATURE_DIFFERENTIAL_THRESHOLD = -1.0
-TEMPERATURE_MEDIAN_WINDOW = 120.0
-WIND_DIRECTION_MEDIAN_WINDOW = 600.0
 
 LOOP_WAIT_TIME = 30.0
 
@@ -94,6 +95,11 @@ LOUVER_AZIMUTH_OFFSETS = [
     306.90,
     306.90,
 ]
+
+
+class VentCondition(enum.IntEnum):
+    TEMPERATURE_CONDITION_MET = enum.auto()
+    SUN_ELEVATION = enum.auto()
 
 
 class PrepareForVent(salobj.BaseScript):
@@ -180,11 +186,25 @@ class PrepareForVent(salobj.BaseScript):
 
         self.loop_wait_time = LOOP_WAIT_TIME
 
-        self._wind_history = []
-        self._outside_temperature_history = []
-        self._indoor_temperature_history = []
+        # airflow sample frequency is 1/s so this collection samples 600s of
+        # history
+        self._wind_history: collections.deque = collections.deque(maxlen=600)
+        # temperature sample frequency is 0.25/s so this collection samples
+        # 120s of history
+        self._outside_temperature_history: collections.deque = collections.deque(
+            maxlen=30
+        )
+        self._indoor_temperature_history: collections.deque = collections.deque(
+            maxlen=30
+        )
         self.louvers = "all"
         self._active_louvers = None
+
+        # Last position actually commanded, so open_dome_shutter_if_needed
+        # / open_dome_louvers_if_needed can skip re-sending a command that
+        # wouldn't change anything.
+        self._shutter_opened = False
+        self._commanded_louver_position = None
 
     @classmethod
     def get_schema(cls):
@@ -277,18 +297,7 @@ class PrepareForVent(salobj.BaseScript):
         await self.mtcs.assert_dome_louvers_enabled(self.louvers)
 
     def set_metadata(self, metadata):
-        metadata.duration = self.estimate_duration()
-
-    def estimate_duration(self):
-        """Estimate the script duration.
-
-        Returns
-        -------
-        `float`
-            Estimated duration (in seconds) until the sun reaches
-            ``SUN_ELEVATION_STOP``.
-        """
-        return self.estimate_time_until_sun_elevation(SUN_ELEVATION_STOP)
+        metadata.duration = self.estimate_time_until_sun_elevation(SUN_ELEVATION_STOP)
 
     def estimate_time_until_sun_elevation(self, elevation):
         """Estimate the time until the setting sun reaches ``elevation``.
@@ -315,101 +324,6 @@ class PrepareForVent(salobj.BaseScript):
 
         return target_time.unix_tai - utils.current_tai()
 
-    def get_sun_azel(self):
-        """Get sun azel from MTCS.
-
-        Returns
-        -------
-        `tuple`[`float`, `float`]
-            Current azimuth and elevation of the sun.
-        """
-        return self.mtcs.get_sun_azel()
-
-    async def point_dome_away_from_sun(self, sun_az):
-        """Slew the dome so the shutter points as close as possible to
-        directly away from the sun, without exceeding the dome's
-        ``[DOME_MIN_AZ, DOME_MAX_AZ]`` azimuth limits.
-
-        Parameters
-        ----------
-        sun_az : `float`
-            Current sun azimuth, in degrees.
-        """
-        target_az = min(max((sun_az + 180.0) % 360.0, DOME_MIN_AZ), DOME_MAX_AZ)
-        await self.mtcs.slew_dome_to(target_az)
-
-    async def point_telescope_to_vent_position(self, dome_az):
-        """Point the telescope to the dome's azimuth at
-        ``TEL_VENT_ELEVATION``.
-
-        Called once, at the start of the script, and once more when the sun
-        drops to or below ``SUN_ELEVATION_HORIZON`` (see
-        `vent_while_sun_sets`); not moved at any other point.
-
-        Parameters
-        ----------
-        dome_az : `float`
-            Dome azimuth to point the telescope to, in degrees.
-        """
-        tel_az = angle_wrap_center(dome_az).deg
-
-        self.log.info(
-            f"Pointing telescope to {tel_az:.1f} deg az (with the dome) at "
-            f"{TEL_VENT_ELEVATION} deg elevation."
-        )
-        await self.mtcs.point_azel(
-            target_name="Vent Position",
-            az=tel_az,
-            el=TEL_VENT_ELEVATION,
-            rot_tel=self.mtcs.tel_park_rot,
-            wait_dome=False,
-        )
-        await self.mtcs.stop_tracking()
-
-    def get_outside_temperature(self):
-        """Get the median outside temperature from the ESS weather station
-        over the ``TEMPERATURE_MEDIAN_WINDOW`` seconds prior to this call.
-
-        Median-filtering avoids reacting to a single noisy sample; the ESS
-        temperature sensors can be noisy. There is no live-reading
-        fallback: ``tel_temperature`` has a callback registered on it (see
-        `configure`), and salobj does not allow also pulling samples from a
-        topic that has a callback.
-
-        Returns
-        -------
-        `float` or `None`
-            Median outside temperature (deg C) over the trailing
-            ``TEMPERATURE_MEDIAN_WINDOW`` seconds, or `None` if no samples
-            were collected in that window (e.g. this is called before the
-            first telemetry sample has arrived).
-        """
-        return self._median_within_window(
-            self._outside_temperature_history, TEMPERATURE_MEDIAN_WINDOW
-        )
-
-    def get_indoor_temperature(self):
-        """Get the median in-dome temperature from the ESS sensor over the
-        ``TEMPERATURE_MEDIAN_WINDOW`` seconds prior to this call.
-
-        Median-filtering avoids reacting to a single noisy sample; the ESS
-        temperature sensors can be noisy. There is no live-reading
-        fallback: ``tel_temperature`` has a callback registered on it (see
-        `configure`), and salobj does not allow also pulling samples from a
-        topic that has a callback.
-
-        Returns
-        -------
-        `float` or `None`
-            Median in-dome temperature (deg C) over the trailing
-            ``TEMPERATURE_MEDIAN_WINDOW`` seconds, or `None` if no samples
-            were collected in that window (e.g. this is called before the
-            first telemetry sample has arrived).
-        """
-        return self._median_within_window(
-            self._indoor_temperature_history, TEMPERATURE_MEDIAN_WINDOW
-        )
-
     @staticmethod
     def _format_temperature(value):
         """Format a temperature for a log/checkpoint message.
@@ -428,136 +342,36 @@ class PrepareForVent(salobj.BaseScript):
 
     async def _outside_temperature_callback(self, data):
         """Append an ESS outside temperature sample to the rolling
-        history, trimming entries older than ``TEMPERATURE_MEDIAN_WINDOW``
-        so it doesn't grow unbounded over a long-running script.
+        history, using deque to manage length.
 
         Parameters
         ----------
         data : `salobj.BaseMsgType`
             ESS temperature telemetry sample.
         """
-        now = data.private_sndStamp
-        self._outside_temperature_history.append((now, data.temperatureItem[0]))
-
-        cutoff = now - TEMPERATURE_MEDIAN_WINDOW
-        self._outside_temperature_history = [
-            sample
-            for sample in self._outside_temperature_history
-            if sample[0] >= cutoff
-        ]
+        self._outside_temperature_history.append(data.temperatureItem[0])
 
     async def _indoor_temperature_callback(self, data):
         """Append an ESS in-dome temperature sample to the rolling
-        history, trimming entries older than ``TEMPERATURE_MEDIAN_WINDOW``
-        so it doesn't grow unbounded over a long-running script.
+        history, using deque to manage length.
 
         Parameters
         ----------
         data : `salobj.BaseMsgType`
             ESS temperature telemetry sample.
         """
-        now = data.private_sndStamp
-        self._indoor_temperature_history.append((now, data.temperatureItem[0]))
-
-        cutoff = now - TEMPERATURE_MEDIAN_WINDOW
-        self._indoor_temperature_history = [
-            sample for sample in self._indoor_temperature_history if sample[0] >= cutoff
-        ]
-
-    @staticmethod
-    def _median_within_window(history, window):
-        """Return the median of ``history`` values within the trailing
-        ``window`` seconds of now.
-
-        Parameters
-        ----------
-        history : `list` of (`float`, `float`)
-            ``(timestamp, value)`` samples.
-        window : `float`
-            Trailing window, in seconds.
-
-        Returns
-        -------
-        `float` or `None`
-            The median value, or `None` if no samples fall within the
-            window.
-        """
-        cutoff = utils.current_tai() - window
-        values = [value for t, value in history if t >= cutoff]
-        return statistics.median(values) if values else None
+        self._indoor_temperature_history.append(data.temperatureItem[0])
 
     async def _air_flow_callback(self, data):
         """Append an ESS airFlow direction sample to the wind history,
-        trimming entries older than ``WIND_DIRECTION_MEDIAN_WINDOW`` so it
-        doesn't grow unbounded over a long-running script (e.g. a lengthy
-        wait in `wait_for_temperature_condition`). Wind speed is not
-        tracked.
-
-        This trim is only to bound memory: `get_wind_direction` still
-        computes its own precise trailing window, relative to the moment
-        it's called, from whatever remains here.
+        using deque to manage length.
 
         Parameters
         ----------
         data : `salobj.BaseMsgType`
             ESS airFlow telemetry sample.
         """
-        now = data.private_sndStamp
-        self._wind_history.append((now, data.direction))
-
-        cutoff = now - WIND_DIRECTION_MEDIAN_WINDOW
-        self._wind_history = [
-            sample for sample in self._wind_history if sample[0] >= cutoff
-        ]
-
-    async def get_wind_direction(self):
-        """Get the median wind direction from the ESS weather station over
-        the ``WIND_DIRECTION_MEDIAN_WINDOW`` seconds prior to this call.
-
-        Median-filtering avoids reacting to a single noisy sample in favor
-        of the sustained wind direction. This is only ever called at the
-        two points where the dome is repositioned for the wind (see
-        `reposition_dome_for_wind`), not continuously.
-
-        Returns
-        -------
-        `float` or `None`
-            Median wind direction (degrees, 0 = north, 90 = east) over the
-            ``WIND_DIRECTION_MEDIAN_WINDOW`` seconds prior to this call, or
-            `None` if no samples were collected in that window.
-        """
-        cutoff = utils.current_tai() - WIND_DIRECTION_MEDIAN_WINDOW
-        directions = [direction for t, direction in self._wind_history if t >= cutoff]
-        if not directions:
-            return None
-
-        return self._circular_median(directions)
-
-    @staticmethod
-    def _circular_median(angles_deg):
-        """Return the circular median of a list of angles.
-
-        Returns whichever observed angle minimizes the sum of absolute
-        circular distances to all other samples. This handles wraparound
-        (e.g. samples clustered near 0/360 deg) correctly and, like a
-        standard median, is resistant to outliers.
-
-        Parameters
-        ----------
-        angles_deg : `list` of `float`
-            Angles, in degrees.
-
-        Returns
-        -------
-        `float`
-            The circular median, in degrees.
-        """
-        return min(
-            angles_deg,
-            key=lambda candidate: sum(
-                abs(angle_diff(candidate, other).deg) for other in angles_deg
-            ),
-        )
+        self._wind_history.append(data.direction)
 
     async def get_dome_azimuth(self):
         """Get the current dome azimuth.
@@ -572,19 +386,32 @@ class PrepareForVent(salobj.BaseScript):
         )
         return data.positionActual
 
-    async def wait_for_temperature_condition(self):
-        """Wait until the outside temperature is close enough to the in-dome
-        temperature to begin venting.
+    async def wait_for_vent_condition(self):
+        """Wait until either the outside temperature is close enough to the
+        in-dome temperature to begin venting or the sun reaches a low enough
+        elevation that venting must start regardless of the temperature
+        condition.
 
         Returns
         -------
-        `bool`
-            `True` once the temperature condition is met. `False` if the sun
-            reaches ``SUN_ELEVATION_STOP`` before the condition is met.
+        `VentCondition`
+            ``VentCondition.TEMPERATURE_CONDITION_MET`` once the outside
+            temperature is close enough to the in-dome temperature.
+            ``VentCondition.SUN_ELEVATION`` if the sun reaches
+            ``SUN_ELEVATION_STOP`` before that happens.
         """
-        outside_temp = self.get_outside_temperature()
-        indoor_temp = self.get_indoor_temperature()
-        _, sun_el = self.get_sun_azel()
+        outside_temp = (
+            float(np.median(self._outside_temperature_history))
+            if self._outside_temperature_history
+            else None
+        )
+        indoor_temp = (
+            float(np.median(self._indoor_temperature_history))
+            if self._indoor_temperature_history
+            else None
+        )
+
+        _, sun_el = self.mtcs.get_sun_azel()
 
         while sun_el > SUN_ELEVATION_STOP and (
             outside_temp is None
@@ -598,9 +425,18 @@ class PrepareForVent(salobj.BaseScript):
             )
             await asyncio.sleep(self.loop_wait_time)
 
-            outside_temp = self.get_outside_temperature()
-            indoor_temp = self.get_indoor_temperature()
-            _, sun_el = self.get_sun_azel()
+            outside_temp = (
+                float(np.median(self._outside_temperature_history))
+                if self._outside_temperature_history
+                else None
+            )
+            indoor_temp = (
+                float(np.median(self._indoor_temperature_history))
+                if self._indoor_temperature_history
+                else None
+            )
+
+            _, sun_el = self.mtcs.get_sun_azel()
 
         condition_met = (
             outside_temp is not None
@@ -613,12 +449,13 @@ class PrepareForVent(salobj.BaseScript):
                 f"outside={self._format_temperature(outside_temp)}, "
                 f"indoor={self._format_temperature(indoor_temp)}."
             )
+            return VentCondition.TEMPERATURE_CONDITION_MET
         else:
             self.log.warning(
                 "Sun reached the stop elevation before the temperature "
                 "condition was met."
             )
-        return condition_met
+        return VentCondition.SUN_ELEVATION
 
     async def reposition_dome_for_wind(self, sun_az, clamp_to_sun_avoidance_range):
         """Slew the dome to face the current wind direction, or -- if no
@@ -647,7 +484,18 @@ class PrepareForVent(salobj.BaseScript):
         `float`
             The dome azimuth that was commanded.
         """
-        wind_direction = await self.get_wind_direction()
+
+        if self._wind_history:
+            # circmean requires a real ndarray/Quantity (it reads .shape
+            # directly) and, given one, treats it as radians -- so the
+            # degrees-valued history must be explicitly tagged with u.deg
+            # and converted back.
+            wind_direction = (
+                circmean(np.asarray(self._wind_history) * u.deg).to_value(u.deg) % 360.0
+            )
+        else:
+            wind_direction = None
+
         if wind_direction is None:
             self.log.warning(
                 "No wind data available; positioning the dome safely away "
@@ -750,6 +598,43 @@ class PrepareForVent(salobj.BaseScript):
             if name in self._active_louvers
         }
 
+    async def open_dome_shutter_if_needed(self):
+        """Open the dome shutter, unless this script has already commanded
+        it open.
+
+        Called every loop iteration in `vent_while_sun_sets`, where the
+        shutter is open for most of the run; without this check every
+        iteration would re-send ``cmd_openShutter`` for no reason.
+        """
+        if self._shutter_opened:
+            return
+
+        self.log.info("Opening dome shutter.")
+        await self.mtcs.open_dome_shutter()
+        self._shutter_opened = True
+
+    async def open_dome_louvers_if_needed(self, position):
+        """Open (or otherwise position) the dome louvers, unless
+        ``position`` matches what this script last commanded.
+
+        Called every loop iteration in `vent_while_sun_sets`, where the
+        desired louver positions often don't change between one iteration
+        and the next; without this check every iteration would re-send
+        ``cmd_setLouvers`` for no reason.
+
+        Parameters
+        ----------
+        position : `dict` [`str`, `float`]
+            Desired percent-open for each active louver, keyed by
+            `lsst.ts.xml.enums.MTDome.Louver` name.
+        """
+        if position == self._commanded_louver_position:
+            return
+
+        self.log.info("Opening dome louvers.")
+        await self.mtcs.open_dome_louvers(position=position)
+        self._commanded_louver_position = position
+
     async def wait_for_sun_elevation_high(self):
         """Wait until the sun descends to ``SUN_ELEVATION_HIGH``.
 
@@ -757,7 +642,7 @@ class PrepareForVent(salobj.BaseScript):
         the dome is only ever nudged the minimum amount needed to stay
         clear of the sun (see `compute_sun_safe_azimuth`).
         """
-        sun_az, sun_el = self.get_sun_azel()
+        sun_az, sun_el = self.mtcs.get_sun_azel()
 
         while sun_el > SUN_ELEVATION_HIGH:
             wait_time = self.estimate_time_until_sun_elevation(SUN_ELEVATION_HIGH)
@@ -778,7 +663,7 @@ class PrepareForVent(salobj.BaseScript):
                 await self.mtcs.slew_dome_to(safe_az)
 
             await asyncio.sleep(self.loop_wait_time)
-            sun_az, sun_el = self.get_sun_azel()
+            sun_az, sun_el = self.mtcs.get_sun_azel()
 
     async def vent_while_sun_sets(self):
         """Track the sun's descent, keeping the dome/louvers safely
@@ -798,19 +683,22 @@ class PrepareForVent(salobj.BaseScript):
         every other loop iteration while the sun is still above
         ``SUN_ELEVATION_HORIZON``, the dome is only nudged the minimum
         amount needed to stay clear of the sun -- it is never otherwise
-        moved for the wind. The aperture shutter is opened every iteration
-        from here on, and the louvers are opened, either capped for sun
-        avoidance (see `compute_louver_positions`) while the sun is above
-        ``SUN_ELEVATION_HORIZON`` or fully open once it is not.
+        moved for the wind. The aperture shutter and louvers are commanded
+        open every iteration from here on -- the louvers either capped for
+        sun avoidance (see `compute_louver_positions`) while the sun is
+        above ``SUN_ELEVATION_HORIZON`` or fully open once it is not -- but
+        `open_dome_shutter_if_needed`/`open_dome_louvers_if_needed` only
+        actually send a command when the desired state has changed since
+        the last one sent.
         """
-        sun_az, _ = self.get_sun_azel()
+        sun_az, _ = self.mtcs.get_sun_azel()
         await self.checkpoint("Positioning dome for the current wind direction.")
         await self.reposition_dome_for_wind(sun_az, clamp_to_sun_avoidance_range=True)
 
         await self.wait_for_sun_elevation_high()
 
         repositioned_for_wind_after_sunset = False
-        sun_az, sun_el = self.get_sun_azel()
+        sun_az, sun_el = self.mtcs.get_sun_azel()
 
         while sun_el > SUN_ELEVATION_STOP:
             if sun_el > SUN_ELEVATION_HORIZON:
@@ -838,7 +726,22 @@ class PrepareForVent(salobj.BaseScript):
                     dome_az = await self.reposition_dome_for_wind(
                         sun_az, clamp_to_sun_avoidance_range=False
                     )
-                    await self.point_telescope_to_vent_position(dome_az)
+
+                    tel_az = angle_wrap_center(dome_az).deg
+
+                    self.log.info(
+                        f"Pointing telescope to {tel_az:.1f} deg az (with the dome) at "
+                        f"{TEL_VENT_ELEVATION} deg elevation."
+                    )
+                    await self.mtcs.point_azel(
+                        target_name="Vent Position",
+                        az=tel_az,
+                        el=TEL_VENT_ELEVATION,
+                        rot_tel=self.mtcs.tel_park_rot,
+                        wait_dome=False,
+                    )
+                    await self.mtcs.stop_tracking()
+
                     repositioned_for_wind_after_sunset = True
 
                 await self.checkpoint(
@@ -848,15 +751,13 @@ class PrepareForVent(salobj.BaseScript):
                 )
                 full_positions = {louver.name: 100.0 for louver in MTDome.Louver}
 
-            self.log.info("Opening dome shutter.")
-            await self.mtcs.open_dome_shutter()
+            await self.open_dome_shutter_if_needed()
 
             louver_position = self.get_enabled_louver_positions(full_positions)
-            self.log.info("Opening dome louvers.")
-            await self.mtcs.open_dome_louvers(position=louver_position)
+            await self.open_dome_louvers_if_needed(louver_position)
 
             await asyncio.sleep(self.loop_wait_time)
-            sun_az, sun_el = self.get_sun_azel()
+            sun_az, sun_el = self.mtcs.get_sun_azel()
 
     async def run(self):
         await self.mtcs.assert_all_enabled()
@@ -877,40 +778,64 @@ class PrepareForVent(salobj.BaseScript):
         await self.checkpoint("Disabling dome following.")
         await self.mtcs.disable_dome_following()
 
-        sun_az, _ = self.get_sun_azel()
+        sun_az, _ = self.mtcs.get_sun_azel()
         await self.checkpoint("Pointing dome shutter away from the sun.")
-        await self.point_dome_away_from_sun(sun_az)
 
-        dome_az = await self.get_dome_azimuth()
+        dome_target_az = min(max((sun_az + 180.0) % 360.0, DOME_MIN_AZ), DOME_MAX_AZ)
+        await self.mtcs.slew_dome_to(dome_target_az)
+
         await self.checkpoint("Pointing telescope to initial dome azimuth.")
-        await self.point_telescope_to_vent_position(dome_az)
+
+        tel_az = angle_wrap_center(dome_target_az).deg
+
+        self.log.info(
+            f"Pointing telescope to {tel_az:.1f} deg az (with the dome) at "
+            f"{TEL_VENT_ELEVATION} deg elevation."
+        )
+        await self.mtcs.point_azel(
+            target_name="Vent Position",
+            az=tel_az,
+            el=TEL_VENT_ELEVATION,
+            rot_tel=self.mtcs.tel_park_rot,
+            wait_dome=False,
+        )
+        await self.mtcs.stop_tracking()
 
         await self.checkpoint("Closing mirror covers.")
         await self.mtcs.close_m1_cover()
 
-        outside_temp = self.get_outside_temperature()
-        indoor_temp = self.get_indoor_temperature()
+        outside_temp = (
+            float(np.median(self._outside_temperature_history))
+            if self._outside_temperature_history
+            else None
+        )
+        indoor_temp = (
+            float(np.median(self._indoor_temperature_history))
+            if self._indoor_temperature_history
+            else None
+        )
+
         await self.checkpoint(
             "Waiting for outside temperature to drop below in-dome temperature: "
             f"outside={self._format_temperature(outside_temp)}, "
             f"indoor={self._format_temperature(indoor_temp)}, "
             f"limit={TEMPERATURE_DIFFERENTIAL_THRESHOLD} C."
         )
-        temperature_condition_met = await self.wait_for_temperature_condition()
+        vent_condition = await self.wait_for_vent_condition()
 
-        if temperature_condition_met:
+        if vent_condition == VentCondition.TEMPERATURE_CONDITION_MET:
             await self.vent_while_sun_sets()
-        else:
+        elif vent_condition == VentCondition.SUN_ELEVATION:
             await self.checkpoint(
                 "Sun reached the stop elevation before the temperature condition "
                 "was met; opening dome shutters and louvers to 100 percent."
             )
-            sun_az, _ = self.get_sun_azel()
+            sun_az, _ = self.mtcs.get_sun_azel()
             await self.reposition_dome_for_wind(
                 sun_az, clamp_to_sun_avoidance_range=False
             )
-            await self.mtcs.open_dome_shutter()
+            await self.open_dome_shutter_if_needed()
             full_positions = {louver.name: 100.0 for louver in MTDome.Louver}
-            await self.mtcs.open_dome_louvers(
-                position=self.get_enabled_louver_positions(full_positions)
+            await self.open_dome_louvers_if_needed(
+                self.get_enabled_louver_positions(full_positions)
             )
