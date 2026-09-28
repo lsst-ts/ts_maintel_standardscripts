@@ -25,6 +25,7 @@ import yaml
 from lsst.ts import salobj
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
+from lsst.ts.xml.enums.Script import ScriptState
 
 BAND_TO_FILTER = {
     "u": "u_24",
@@ -52,6 +53,8 @@ class PrepareForOnSky(salobj.BaseScript):
     on-sky operations on MTCS and LSSTCam.
     Setting up LSSTCam with filter 'FILTER': before configuring LSSTCam with
     the specified filter.
+    Ensure OCPS:101 is enabled: before checking its summary state and enabling
+    it if necessary.
     Assert that MTM1M3TS is not in engineering mode: before running prepare
     for on-sky operations.
     """
@@ -63,12 +66,16 @@ class PrepareForOnSky(salobj.BaseScript):
 
         self.mtcs = None
         self.lsstcam = None
+        self.ocps = None
         self.mtm1m3ts = None
         self.homing_attempts = 10
+        self.target_az = None
+        self.target_el = None
+        self.target_rot = None
 
     @classmethod
     def get_schema(cls):
-        schema_yaml = """
+        schema_yaml = f"""
             $schema: http://json-schema.org/draft-07/schema#
             $id: https://github.com/lsst-ts/ts_maintel_standardscripts/prepare_for/onsky.yaml
             title: PrepareForOnSky v1
@@ -112,6 +119,34 @@ class PrepareForOnSky(salobj.BaseScript):
                     type: integer
                     default: 10
                     minimum: 1
+                target_az:
+                    description: >-
+                        Optional target azimuth for both the dome and telescope,
+                        in degrees. If omitted, MTCS uses its default on-sky
+                        azimuth.
+                    anyOf:
+                        - type: number
+                        - type: "null"
+                    default: null
+                target_el:
+                    description: >-
+                        Optional target telescope elevation in degrees. If omitted,
+                        MTCS uses its default on-sky elevation.
+                    anyOf:
+                        - type: number
+                          minimum: {MTCS.tel_operate_mirror_covers_el}
+                          maximum: {MTCS.tel_max_el}
+                        - type: "null"
+                    default: null
+                target_rot:
+                    description: >-
+                        Optional target rotator angle in mount physical
+                        coordinates, in degrees. If omitted, MTCS uses its
+                        default on-sky rotator angle.
+                    anyOf:
+                        - type: number
+                        - type: "null"
+                    default: null
             additionalProperties: false
         """
         return yaml.safe_load(schema_yaml)
@@ -153,6 +188,15 @@ class PrepareForOnSky(salobj.BaseScript):
         else:
             self.log.debug("LSST Camera already initialized.")
 
+    async def configure_ocps(self) -> None:
+        """Initialize OCPS:101 if not already initialized."""
+        if self.ocps is None:
+            self.log.debug("Creating OCPS:101 remote instance.")
+            self.ocps = salobj.Remote(self.domain, "OCPS", index=101)
+            await self.ocps.start_task
+        else:
+            self.log.debug("OCPS:101 already initialized.")
+
     async def configure_mtm1m3ts(self) -> None:
         """Initialize MTM1M3TS remote if not already initialized."""
         if self.mtm1m3ts is None:
@@ -163,9 +207,9 @@ class PrepareForOnSky(salobj.BaseScript):
             self.log.debug("MTM1M3TS already initialized.")
 
     async def configure(self, config):
-
         await self.configure_tcs()
         await self.configure_camera()
+        await self.configure_ocps()
         await self.configure_mtm1m3ts()
 
         critical_cscs = self.mtcs.get_critical_components_for_prepare_for_onsky()
@@ -188,8 +232,33 @@ class PrepareForOnSky(salobj.BaseScript):
         if hasattr(config, "homing_attempts"):
             self.homing_attempts = config.homing_attempts
 
+        self.target_az = getattr(config, "target_az", None)
+        self.target_el = getattr(config, "target_el", None)
+        self.target_rot = getattr(config, "target_rot", None)
+
     def set_metadata(self, metadata):
         metadata.duration = 600.0 + self.lsstcam.filter_change_timeout
+
+    async def ensure_ocps_enabled(self) -> None:
+        """Ensure the OCPS:101 CSC is enabled."""
+
+        self.log.info("Ensuring OCPS:101 is enabled.")
+
+        ocps_current_state = salobj.State(
+            (
+                await self.ocps.evt_summaryState.aget(timeout=self.mtcs.fast_timeout)
+            ).summaryState
+        )
+
+        if ocps_current_state != salobj.State.ENABLED:
+            self.log.info(
+                f"OCPS:101 is not enabled (current state: {ocps_current_state!r}). "
+                "Attempting to enable."
+            )
+            await salobj.set_summary_state(self.ocps, salobj.State.ENABLED)
+            self.log.info("OCPS:101 has been enabled.")
+        else:
+            self.log.info("OCPS:101 is already enabled.")
 
     async def assert_mtm1m3ts_not_in_engineering_mode(self) -> None:
         """Assert that MTM1M3TS is not in engineering mode.
@@ -231,14 +300,18 @@ class PrepareForOnSky(salobj.BaseScript):
             )
 
     async def run(self):
-
         await self.checkpoint("Preparing MTCS components for on-sky operations.")
 
         await self.mtcs.assert_all_enabled(
             message="All MTCS components need to be enabled to prepare for on-sky observations."
         )
 
-        await self.mtcs.prepare_for_onsky(homing_attempts=self.homing_attempts)
+        await self.mtcs.prepare_for_onsky(
+            homing_attempts=self.homing_attempts,
+            target_az=self.target_az,
+            target_el=self.target_el,
+            target_rot=self.target_rot,
+        )
 
         await self.checkpoint(f"Setting up LSSTCam with filter '{self.filter}'.")
 
@@ -248,7 +321,19 @@ class PrepareForOnSky(salobj.BaseScript):
 
         await self.lsstcam.setup_instrument(filter=self.filter)
 
+        await self.checkpoint("Ensure OCPS:101 is enabled.")
+        await self.ensure_ocps_enabled()
+
         await self.checkpoint("Assert that MTM1M3TS is not in engineering mode.")
         await self.assert_mtm1m3ts_not_in_engineering_mode()
 
         self.log.info("Prepare for on-sky operations completed successfully.")
+
+    async def cleanup(self) -> None:
+        if self.state.state == ScriptState.ENDING:
+            return
+
+        try:
+            await self.mtcs.stop_tracking()
+        except Exception:
+            self.log.exception("Unable to stop tracking during cleanup.")
