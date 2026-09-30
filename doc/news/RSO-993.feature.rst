@@ -1,3 +1,0 @@
-Updated ``maintel/daytime_checkout/lsstcam_fes_exercise.py`` to account for the MTRotator position during its readiness check.
-MTMount may now remain ``DISABLED`` only if MTRotator is already within tolerance of the 0 deg filter-change position.
-Otherwise the script requires MTMount to be ``ENABLED`` and fails early with a clear corrective message.
