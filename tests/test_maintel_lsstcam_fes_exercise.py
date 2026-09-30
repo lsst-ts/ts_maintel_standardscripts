@@ -20,6 +20,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -43,6 +44,7 @@ class TestLsstCamFesExercise(
         self.lsstcam_states = {
             "mtcamera": salobj.State.ENABLED,
         }
+        self.rotator_position = 1.0
         return super().setUp()
 
     async def basic_make_script(self, index):
@@ -62,6 +64,14 @@ class TestLsstCamFesExercise(
             return self.mtcs_states.get(name, salobj.State.ENABLED)
 
         self.script.mtcs.get_state = unittest.mock.AsyncMock(side_effect=_get_state)
+
+        async def _get_rotator_position(*, timeout):
+            return SimpleNamespace(actualPosition=self.rotator_position)
+
+        self.script.mtcs.rem.mtrotator = unittest.mock.AsyncMock()
+        self.script.mtcs.rem.mtrotator.tel_rotation.aget = unittest.mock.AsyncMock(
+            side_effect=_get_rotator_position
+        )
 
         async def _get_lsstcam_state(name):
             return self.lsstcam_states.get(name, salobj.State.ENABLED)
@@ -206,9 +216,10 @@ class TestLsstCamFesExercise(
             with pytest.raises(AssertionError):
                 await self.run_script()
 
-    async def test_run_allows_disabled_mtmount(self):
-        """Test that MTMount may be disabled for the FES exercise."""
+    async def test_run_allows_disabled_mtmount_at_zero(self):
+        """Test that MTMount may be disabled when MTRotator is at zero."""
         self.mtcs_states["mtmount"] = salobj.State.DISABLED
+        self.rotator_position = 0.0
         async with self.make_script():
             await self.configure_script()
 
@@ -228,8 +239,19 @@ class TestLsstCamFesExercise(
             ]
             self.script.lsstcam.setup_instrument.assert_has_calls(expected_calls)
 
+    async def test_run_rejects_disabled_mtmount_away_from_zero(self):
+        """Test that MTMount must be enabled when MTRotator must move."""
+        self.mtcs_states["mtmount"] = salobj.State.DISABLED
+        async with self.make_script():
+            await self.configure_script()
+
+            with pytest.raises(AssertionError):
+                await self.run_script()
+
+            self.script.lsstcam.setup_instrument.assert_not_awaited()
+
     async def test_run_rejects_mtmount_standby(self):
-        """Test that MTMount must be at least disabled."""
+        """Test that MTMount must be enabled or disabled."""
         self.mtcs_states["mtmount"] = salobj.State.STANDBY
         async with self.make_script():
             await self.configure_script()

@@ -74,9 +74,10 @@ class LsstCamFesExercise(salobj.BaseScript):
 
     This script is intended for exercising the filter exchange system and
     verifying filter motion. It requires MTCamera, MTPtg, and MTRotator to be
-    enabled. MTMount can be either enabled or disabled. The script handles the
-    case where only one physical filter is available and leaves the camera in
-    the requested final filter.
+    enabled. MTMount may be disabled if MTRotator is already at the 0-degree
+    filter-change position. Otherwise, MTMount must be enabled. The script
+    handles the case where only one physical filter is available and leaves the
+    camera in the requested final filter.
 
     **Examples**
 
@@ -112,7 +113,8 @@ class LsstCamFesExercise(salobj.BaseScript):
             title: LsstCamFesExercise v1
             description: >-
               Configuration for the LSSTCam filter exercise script. Note this operation requires
-              MTCamera, MTPtg, and MTRotator to be ENABLED. MTMount can be either ENABLED or DISABLED.
+              MTCamera, MTPtg, and MTRotator to be ENABLED. MTMount may be DISABLED if MTRotator
+              is already at the 0 deg filter-change position. Otherwise, MTMount must be ENABLED.
             type: object
             properties:
               final_filter:
@@ -192,7 +194,8 @@ class LsstCamFesExercise(salobj.BaseScript):
     async def assert_feasibility(self):
         self.log.info(
             "Checking FES readiness: MTCamera, MTPtg, and MTRotator must be "
-            "ENABLED; MTMount can be either ENABLED or DISABLED."
+            "ENABLED. MTMount may be DISABLED if MTRotator is already at the "
+            "0-degree filter-change position. Otherwise, MTMount must be ENABLED."
         )
         await self._ensure_mtcs_ready()
         await self._ensure_lsstcam_ready()
@@ -310,12 +313,28 @@ class LsstCamFesExercise(salobj.BaseScript):
         self._check_component_state(component, current_state, (salobj.State.ENABLED,))
 
         component = "mtmount"
-        current_state = await self.mtcs.get_state(component)
+        mtmount_current_state = await self.mtcs.get_state(component)
         self._check_component_state(
             component,
-            current_state,
+            mtmount_current_state,
             (salobj.State.ENABLED, salobj.State.DISABLED),
         )
+
+        if mtmount_current_state == salobj.State.DISABLED:
+            rotation = await self.mtcs.rem.mtrotator.tel_rotation.aget(
+                timeout=self.mtcs.fast_timeout
+            )
+            filter_change_position = self.lsstcam.rotator_filter_change_position
+            if (
+                abs(rotation.actualPosition - filter_change_position)
+                >= self.mtcs.rotator_position_tolerance
+            ):
+                raise RuntimeError(
+                    "MTMount must be ENABLED to move MTRotator from current "
+                    f"position ({rotation.actualPosition:.2f} deg) to required "
+                    f"position ({filter_change_position:.2f} deg) for filter "
+                    "change. Enable MTMount and run the script again."
+                )
 
     async def _ensure_lsstcam_ready(self):
         """Ensure LSSTCam components are set for safe filter changes."""
