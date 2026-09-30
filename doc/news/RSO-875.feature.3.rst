@@ -1,0 +1,1 @@
+Added the ``TelescopeAndDomeCheckout`` daytime script, which subclasses ``BaseTelescopeCheckout`` to perform a coordinated telescope-and-dome checkout.
