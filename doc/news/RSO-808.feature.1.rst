@@ -1,2 +1,0 @@
-Added optional ``target_az``, ``target_el``, and ``target_rot`` configuration parameters to ``maintel/prepare_for/onsky.py``.
-When omitted, ``MTCS`` retains its default on-sky target position.

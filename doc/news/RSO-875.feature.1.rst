@@ -1,1 +1,0 @@
-Added ``BaseTelescopeCheckout`` to provide the shared configuration, preparation, movement, tracking, finalization, and cleanup logic for the Simonyi Telescope daytime checkout scripts.
