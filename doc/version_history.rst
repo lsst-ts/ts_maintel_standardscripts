@@ -8,6 +8,55 @@ Version History
 
 .. towncrier release notes start
 
+v0.10.0 (2026-09-30)
+====================
+
+New Features
+------------
+
+- Added ``BaseLsstCamCheckout`` to provide the common implementation for LSSTCam checkout scripts.
+  It checks the required LSSTCam CSCs, acquires DARK exposures, and independently validates each exposure's science-sensor ingestion in MTOODS and wavefront-sensor ingestion in WFOODS.
+  Guider ingestion is also reported but does not determine whether a checkout succeeds. (`DM-51658 <https://rubinobs.atlassian.net/browse/DM-51658>`_)
+- Added ``LsstCamNightIngestionCheckout`` as a fast nighttime specialization of ``BaseLsstCamCheckout``.
+  It takes one 5-second DARK exposure and verifies LSSTCam MTOODS and WFOODS ingestion.
+  It is suitable to diagnose ingestion during nighttime operations. (`DM-51658 <https://rubinobs.atlassian.net/browse/DM-51658>`_)
+- Added ``daytime_checkout/lsstcam_checkout.py`` as a specialization of ``BaseLsstCamCheckout``.
+  It takes two 30-second DARK exposures to perform the daily LSSTCam acquisition and OODS ingestion checkout. (`DM-51658 <https://rubinobs.atlassian.net/browse/DM-51658>`_)
+- Added ``daytime_checkout/lsstcam_fes_exercise.py`` to automate daily LSSTCam Filter Exchange System (FES) exercises.
+  It performs the following steps:
+   * it checks that MTCS components are in appropriate states for safe filter changes.
+   * it logs the current and available filters for debugging and verification.
+   * it selects an intermediate physical filter distinct from both the current and final filters if possible.
+   * it commands the intermediate filter, waits 120 seconds, and then commands the final filter.
+   * if no distinct intermediate physical filter is available, it logs a warning and performs the minimum necessary to reach the final filter.
+   * it always leaves the camera in the requested final filter if it is available. (`DM-51658 <https://rubinobs.atlassian.net/browse/DM-51658>`_)
+- Added support for setting guider roi to the base close loop script. (`OSW-1986 <https://rubinobs.atlassian.net/browse/OSW-1986>`_)
+- Add ``PrepareForVent`` script to automate the Simonyi evening venting protocol (dome rotation, mirror covers, louvers, and aperture shutter). (`OSW-2759 <https://rubinobs.atlassian.net/browse/OSW-2759>`_)
+- Added optional ``target_az``, ``target_el``, and ``target_rot`` configuration parameters to ``maintel/prepare_for/onsky.py``.
+  When omitted, ``MTCS`` retains its default on-sky target position. (`RSO-808 <https://rubinobs.atlassian.net/browse/RSO-808>`_)
+- Updated ``maintel/prepare_for/onsky.py`` to ensure ``OCPS:101`` is enabled. (`RSO-808 <https://rubinobs.atlassian.net/browse/RSO-808>`_)
+- Added minimal abnormal cleanup to ``maintel/prepare_for/onsky.py`` that attempts to stop telescope tracking without commanding additional telescope or dome actions. (`RSO-808 <https://rubinobs.atlassian.net/browse/RSO-808>`_)
+- Added the ``TelescopeAndDomeCheckout`` daytime script, which subclasses ``BaseTelescopeCheckout`` to perform a coordinated telescope-and-dome checkout. (`RSO-875 <https://rubinobs.atlassian.net/browse/RSO-875>`_)
+- Added the ``TelescopeCheckout`` daytime script, which subclasses ``BaseTelescopeCheckout`` to perform a telescope-only checkout. (`RSO-875 <https://rubinobs.atlassian.net/browse/RSO-875>`_)
+- Added ``BaseTelescopeCheckout`` to provide the shared configuration, preparation, movement, tracking, finalization, and cleanup logic for the Simonyi Telescope daytime checkout scripts. (`RSO-875 <https://rubinobs.atlassian.net/browse/RSO-875>`_)
+- Updated ``maintel/daytime_checkout/lsstcam_fes_exercise.py`` to account for the MTRotator position during its readiness check.
+  MTMount may now remain ``DISABLED`` only if MTRotator is already within tolerance of the 0 deg filter-change position.
+  Otherwise the script requires MTMount to be ``ENABLED`` and fails early with a clear corrective message. (`RSO-993 <https://rubinobs.atlassian.net/browse/RSO-993>`_)
+
+
+Bug Fixes
+---------
+
+- Updated ``ensure_onsky_readiness.py`` to expand acceptable MTAOS closed loop states.
+  The check now passes for any active state (``WAITING_IMAGE``, ``PROCESSING``, ``WAITING_APPLY``, ``APPLYING_CORRECTION``) and only fails for ``IDLE`` or ``ERROR`` states, preventing false negatives during on-sky readiness checks. (`RSO-545 <https://rubinobs.atlassian.net/browse/RSO-545>`_)
+
+
+Other Changes and Additions
+---------------------------
+
+- Updated license header in all files and updated ts-pre-commit configuration to include new license check. (`OSW-2901 <https://rubinobs.atlassian.net/browse/OSW-2901>`_)
+
+
 v0.9.0 (2026-06-08)
 ===================
 

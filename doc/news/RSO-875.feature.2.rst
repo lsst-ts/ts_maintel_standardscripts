@@ -1,1 +1,0 @@
-Added the ``TelescopeCheckout`` daytime script, which subclasses ``BaseTelescopeCheckout`` to perform a telescope-only checkout.
