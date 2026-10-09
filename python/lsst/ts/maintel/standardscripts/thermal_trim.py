@@ -127,6 +127,46 @@ class ThermalTelemetry:
     gradients_n_samples: int = 0
     gradients_age: float | None = None
 
+    #: Configuration key for each gradient axis, see `from_config`.
+    GRADIENT_CONFIG_KEYS: typing.ClassVar[dict[str, str]] = {
+        "x": "x_gradient_c_per_m",
+        "y": "y_gradient_c_per_m",
+        "z": "z_gradient_c_per_m",
+        "radial": "radial_gradient_c_per_m",
+    }
+
+    @classmethod
+    def from_config(cls, config: typing.Mapping[str, typing.Any]) -> "ThermalTelemetry":
+        """Build telemetry from user-supplied values.
+
+        Parameters
+        ----------
+        config : `Mapping`
+            ``truss_temp_c`` [deg C] and, optionally, the four gradients
+            ``x_gradient_c_per_m``, ``y_gradient_c_per_m``,
+            ``z_gradient_c_per_m`` and ``radial_gradient_c_per_m`` [deg C
+            per m]. The gradients are only used if all four are given and
+            not `None`; otherwise they are reported unavailable.
+
+        Returns
+        -------
+        `ThermalTelemetry`
+            Telemetry with one sample of age zero per quantity.
+        """
+        telemetry = cls(
+            truss_temp_c=float(config["truss_temp_c"]),
+            truss_n_samples=1,
+            truss_age=0.0,
+        )
+        values = {
+            axis: config.get(key) for axis, key in cls.GRADIENT_CONFIG_KEYS.items()
+        }
+        if all(value is not None for value in values.values()):
+            telemetry.gradients = {axis: float(value) for axis, value in values.items()}
+            telemetry.gradients_n_samples = 1
+            telemetry.gradients_age = 0.0
+        return telemetry
+
 
 class TrimCalculator:
     """The fitted thermal-focus correction, read from a coefficient file.

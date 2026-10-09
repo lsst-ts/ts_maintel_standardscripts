@@ -40,6 +40,7 @@ from .thermal_trim import (
     DEFAULT_GRADIENTS_SAL_INDEX,
     DEFAULT_TRUSS_SAL_INDEX,
     DEFAULT_TRUSS_TEMPERATURE_ITEMS,
+    ThermalTelemetry,
     TrimCalculator,
     get_efd_client,
     get_thermal_telemetry,
@@ -411,6 +412,37 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                     anyOf:
                       - type: string
                       - type: "null"
+                    default: null
+                  telemetry:
+                    description: >-
+                        Thermal telemetry to use instead of querying the
+                        EFD, e.g. for testing or if the ESS feed is down.
+                        If given, truss_temp_c is required and the four
+                        gradients are used only if all of them are given;
+                        otherwise the truss-only prediction is used (see
+                        require_gradients).
+                    anyOf:
+                      - type: "null"
+                      - type: object
+                        additionalProperties: false
+                        required:
+                          - truss_temp_c
+                        properties:
+                          truss_temp_c:
+                            description: TMA truss temperature (deg C).
+                            type: number
+                          x_gradient_c_per_m:
+                            description: M1M3 thermal gradient along x (deg C per m).
+                            type: number
+                          y_gradient_c_per_m:
+                            description: M1M3 thermal gradient along y (deg C per m).
+                            type: number
+                          z_gradient_c_per_m:
+                            description: M1M3 thermal gradient along z (deg C per m).
+                            type: number
+                          radial_gradient_c_per_m:
+                            description: M1M3 radial thermal gradient (deg C per m).
+                            type: number
                     default: null
             additionalProperties: false
         """
@@ -837,8 +869,9 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
     async def compute_thermal_dof_offset(self) -> np.ndarray:
         """Predict the thermal focus trim and the DOF offset to reach it.
 
-        The TMA truss temperature and the M1M3 thermal gradients are
-        retrieved from the EFD and fed to the trim calculator, which
+        The TMA truss temperature and the M1M3 thermal gradients are taken
+        from the ``telemetry`` configuration if given, and retrieved from
+        the EFD otherwise. They are fed to the trim calculator, which
         predicts the v-mode-1 amplitude the system should be at. The
         current MTAOS DOF state is projected onto v-mode-1 and the offset
         along v-mode-1 that reaches the prediction is returned.
@@ -856,21 +889,28 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
         """
         config = self.thermal_prealignment
 
-        efd_client = await self.get_efd_client()
-        telemetry = await get_thermal_telemetry(
-            efd_client,
-            lookback=config["lookback"],
-            max_data_age=config["max_data_age"],
-            truss_sal_index=config["truss_sal_index"],
-            truss_temperature_items=config["truss_temperature_items"],
-            gradients_sal_index=config["gradients_sal_index"],
-            log=self.log,
-        )
-        self.log.info(
-            f"Truss temperature: {telemetry.truss_temp_c:.2f} C "
-            f"({telemetry.truss_n_samples} samples, newest "
-            f"{telemetry.truss_age:.0f} s old)."
-        )
+        if config["telemetry"] is not None:
+            telemetry = ThermalTelemetry.from_config(config["telemetry"])
+            self.log.info(
+                f"Using thermal telemetry from the configuration: "
+                f"truss temperature {telemetry.truss_temp_c:.2f} C."
+            )
+        else:
+            efd_client = await self.get_efd_client()
+            telemetry = await get_thermal_telemetry(
+                efd_client,
+                lookback=config["lookback"],
+                max_data_age=config["max_data_age"],
+                truss_sal_index=config["truss_sal_index"],
+                truss_temperature_items=config["truss_temperature_items"],
+                gradients_sal_index=config["gradients_sal_index"],
+                log=self.log,
+            )
+            self.log.info(
+                f"Truss temperature: {telemetry.truss_temp_c:.2f} C "
+                f"({telemetry.truss_n_samples} samples, newest "
+                f"{telemetry.truss_age:.0f} s old)."
+            )
         if telemetry.gradients is None:
             if config["require_gradients"]:
                 raise RuntimeError(

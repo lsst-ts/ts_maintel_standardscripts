@@ -1,4 +1,5 @@
 Added an optional thermal pre-alignment step to ``base_close_loop.py``, configured through the new ``thermal_prealignment`` block.
 When enabled, the script retrieves the TMA truss temperature (``ESS:122``) and the M1M3 thermal gradients (``ESS:114``, ``m1m3ThermalGradients``) from the EFD, predicts the focus (v-mode-1) DOF trim with a fitted thermal model, and offsets the DOF state to it before the first closed loop iteration.
+The telemetry can also be given directly in the configuration (``thermal_prealignment.telemetry``) to bypass the EFD, e.g. for testing or if the ESS feed is down.
 If the M1M3 gradients are unavailable it falls back to the truss-only prediction unless ``require_gradients`` is set; if the step fails altogether it logs a warning and continues unless ``required`` is set.
 Added the ``thermal_trim`` module with the ``TrimCalculator`` and the EFD telemetry retrieval, and the fitted coefficients in ``thermal_trim_coefficients.yaml``.

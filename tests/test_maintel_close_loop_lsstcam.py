@@ -365,6 +365,61 @@ class TestCloseLoopLSSTCam(
             np.testing.assert_allclose(self.script.thermal_dof_offset, expected)
             self.script.mtcs.rem.mtaos.cmd_offsetDOF.set_start.assert_not_awaited()
 
+    async def test_run_thermal_prealignment_config_telemetry(self):
+        async with self.make_script():
+            gradients = self.gradients_frame.iloc[0]
+            await self.configure_script(
+                filter="r",
+                set_roi=False,
+                thermal_prealignment=dict(
+                    enabled=True,
+                    telemetry=dict(
+                        truss_temp_c=11.5,
+                        x_gradient_c_per_m=float(gradients["xGradient"]),
+                        y_gradient_c_per_m=float(gradients["yGradient"]),
+                        z_gradient_c_per_m=float(gradients["zGradient"]),
+                        radial_gradient_c_per_m=float(gradients["radialGradient"]),
+                    ),
+                ),
+            )
+            expected = self.expected_thermal_offset()
+
+            await self.script.run_thermal_prealignment()
+
+            # The EFD is not consulted and the offset matches the one the
+            # same values would give from the EFD.
+            self.script.get_efd_client.assert_not_awaited()
+            np.testing.assert_allclose(self.script.thermal_dof_offset, expected)
+            self.script.mtcs.rem.mtaos.cmd_offsetDOF.set_start.assert_awaited_once()
+
+    async def test_run_thermal_prealignment_config_telemetry_truss_only(self):
+        async with self.make_script():
+            await self.configure_script(
+                filter="r",
+                set_roi=False,
+                thermal_prealignment=dict(
+                    enabled=True, telemetry=dict(truss_temp_c=11.5)
+                ),
+            )
+            expected = self.expected_thermal_offset(with_gradients=False)
+
+            await self.script.run_thermal_prealignment()
+
+            self.script.get_efd_client.assert_not_awaited()
+            np.testing.assert_allclose(self.script.thermal_dof_offset, expected)
+
+    async def test_configure_thermal_prealignment_bad_telemetry(self):
+        async with self.make_script():
+            for telemetry in [
+                dict(z_gradient_c_per_m=0.1),  # truss_temp_c missing
+                dict(truss_temp_c=11.5, bogus=1.0),
+            ]:
+                with self.assertRaises(Exception):
+                    await self.configure_script(
+                        filter="r",
+                        thermal_prealignment=dict(enabled=True, telemetry=telemetry),
+                    )
+
     async def test_run_with_thermal_prealignment(self):
         async with self.make_script():
             await self.configure_script(

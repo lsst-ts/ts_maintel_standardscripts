@@ -95,6 +95,36 @@ class TestTrimCalculator(unittest.TestCase):
             self.calc.predict_from_telemetry(telemetry), self.calc.predict_trim(10.0)
         )
 
+    def test_telemetry_from_config(self):
+        telemetry = ThermalTelemetry.from_config(dict(truss_temp_c=11.3))
+        self.assertEqual(telemetry.truss_temp_c, 11.3)
+        self.assertIsNone(telemetry.gradients)
+
+        # Partial gradients count as unavailable.
+        telemetry = ThermalTelemetry.from_config(
+            dict(truss_temp_c=11.3, z_gradient_c_per_m=-0.07)
+        )
+        self.assertIsNone(telemetry.gradients)
+
+        telemetry = ThermalTelemetry.from_config(
+            dict(
+                truss_temp_c=11.3,
+                x_gradient_c_per_m=0.0017,
+                y_gradient_c_per_m=-0.0196,
+                z_gradient_c_per_m=-0.0656,
+                radial_gradient_c_per_m=-0.0168,
+            )
+        )
+        self.assertEqual(
+            telemetry.gradients,
+            dict(x=0.0017, y=-0.0196, z=-0.0656, radial=-0.0168),
+        )
+        v1, _, _ = self.calc.predict_from_telemetry(telemetry)
+        expected_v1, _, _ = self.calc.predict_trim(
+            11.3, -0.0656, -0.0196, -0.0168, 0.0017
+        )
+        self.assertAlmostEqual(v1, expected_v1)
+
     def test_extrapolated_features(self):
         self.assertEqual(self.calc.extrapolated_features(truss_temp_c=10.0), [])
         outside = self.calc.extrapolated_features(
