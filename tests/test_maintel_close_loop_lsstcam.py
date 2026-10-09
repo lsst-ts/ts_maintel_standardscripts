@@ -104,7 +104,9 @@ class TestCloseLoopLSSTCam(
                 "cmd_issueCorrection.start": self.apply_offsets,
                 "evt_wavefrontError.flush": unittest.mock.AsyncMock(),
                 "evt_degreeOfFreedom.aget": self.return_current_dof,
-                "cmd_offsetDOF.set_start": self.apply_dof_offset,
+                "cmd_offsetDOF.set_start": unittest.mock.AsyncMock(
+                    side_effect=self.apply_dof_offset
+                ),
             }
         )
 
@@ -257,15 +259,16 @@ class TestCloseLoopLSSTCam(
     def expected_thermal_v1(self, with_gradients=True):
         """Return the v1 the pre-alignment should predict."""
         calc = self.script.trim_calculator
+        if not with_gradients:
+            v1, _, _ = calc.predict_trim(truss_temp_c=11.5)
+            return v1
         gradients = self.gradients_frame.iloc[0]
         v1, _, _ = calc.predict_trim(
             truss_temp_c=11.5,
-            z_gradient_c_per_m=gradients["zGradient"] if with_gradients else 0.0,
-            y_gradient_c_per_m=gradients["yGradient"] if with_gradients else 0.0,
-            radial_gradient_c_per_m=(
-                gradients["radialGradient"] if with_gradients else 0.0
-            ),
-            x_gradient_c_per_m=gradients["xGradient"] if with_gradients else 0.0,
+            z_gradient_c_per_m=gradients["zGradient"],
+            y_gradient_c_per_m=gradients["yGradient"],
+            radial_gradient_c_per_m=gradients["radialGradient"],
+            x_gradient_c_per_m=gradients["xGradient"],
         )
         return v1
 
