@@ -1,0 +1,64 @@
+# Fitted coefficients for the thermal-focus trim calculator
+# (lsst.ts.maintel.standardscripts.thermal_trim.TrimCalculator).
+#
+# The focus response was fitted by robust (Huber) linear regression of the
+# open-loop v-mode-1 amplitude on five thermal telemetry values, over more
+# than 60k LSSTCam science visits: the mean TMA truss temperature and the
+# M1M3 bulk thermal gradients along z, y, radial and x.
+#
+# To use a refitted file, point the ``coefficients_path`` entry of the
+# ``thermal_prealignment`` configuration of the close loop scripts at it.
+
+# Response with every feature at zero [um of equivalent hexapod dz].
+intercept_um: -1392.01
+
+# Coefficient on the TMA truss temperature
+# [um of equivalent hexapod dz per deg C].
+truss_um_per_c: 125.09
+
+# Coefficients on the four M1M3 bulk thermal gradients
+# [um of equivalent hexapod dz per (deg C per m)].
+gradient_um_per_c_per_m:
+  z: -811.32
+  y: -1254.02
+  radial: -949.08
+  x: -3374.73
+
+# Full observed range of each feature over the fitted sample, as
+# [low, high]. Truss temperature in deg C, the four gradients in deg C per m.
+sample_feature_range:
+  truss_temp_c: [3.87652, 17.70162]
+  z_gradient_c_per_m: [-0.76917, 0.68002]
+  y_gradient_c_per_m: [-0.14575, 0.03324]
+  radial_gradient_c_per_m: [-0.23442, 0.13742]
+  x_gradient_c_per_m: [-0.01793, 0.04637]
+
+# v-mode-1 amplitude per um of total hexapod dz travel, split evenly between
+# the camera and M2 hexapods [dimensionless per um]. The inverse is 1110.1 um
+# of hexapod dz per unit v1.
+v1_per_um_dz: 9.00851e-04
+
+# Equivalent hexapod dz per um of wavefront defocus
+# [um of equivalent hexapod dz per um of wavefront].
+dz_um_per_um_wf: -63.9902
+
+# DOF content of one unit of v-mode-1 amplitude [um per unit v1], at the
+# 50-DOF, 34-mode projection. Keys are DOF names from
+# lsst.ts.observatory.control.utils.enums.DOFName.
+v1_dof:
+  M2_dz:
+    um_per_unit: -463.898287
+    label: M2 hexapod dz
+    unit: um
+  Cam_dz:
+    um_per_unit: -645.657870
+    label: camera hexapod dz
+    unit: um
+  M1M3_B3:
+    um_per_unit: 0.009390
+    label: M1M3 bending mode B3
+    unit: um
+  M2_B5:
+    um_per_unit: 0.007551
+    label: M2 bending mode B5
+    unit: um
