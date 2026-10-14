@@ -29,10 +29,13 @@ import pandas as pd
 import yaml
 from lsst.ts import standardscripts
 from lsst.ts.maintel.standardscripts import CloseLoopLSSTCam
-from lsst.ts.maintel.standardscripts.thermal_trim import (
-    GRADIENT_FIELDS,
-    TRUSS_TOPIC,
-    TrimCalculator,
+from lsst.ts.maintel.standardscripts.base_close_loop import (
+    THERMAL_GRADIENT_UM_PER_C_PER_M,
+    THERMAL_INTERCEPT_UM,
+    THERMAL_TRUSS_FIELDS,
+    THERMAL_TRUSS_UM_PER_C,
+    THERMAL_V1_DOF,
+    THERMAL_V1_PER_UM_DZ,
 )
 from lsst.ts.observatory.control import ROI, ROICommon, ROISpec
 from lsst.ts.observatory.control.maintel.lsstcam import LSSTCam, LSSTCamUsages
@@ -104,19 +107,16 @@ class TestCloseLoopLSSTCam(
                 "cmd_issueCorrection.start": self.apply_offsets,
                 "evt_wavefrontError.flush": unittest.mock.AsyncMock(),
                 "evt_degreeOfFreedom.aget": self.return_current_dof,
-                "cmd_offsetDOF.set_start": unittest.mock.AsyncMock(
-                    side_effect=self.apply_dof_offset
-                ),
+                "cmd_offsetDOF.set_start": self.apply_dof_offset,
             }
         )
 
-        # Thermal telemetry returned by the mocked EFD client; the gradients
-        # frame may be replaced by an empty one to test the fallback.
+        # Thermal telemetry returned by the mocked EFD client.
         self.truss_frame = self.make_efd_frame(
-            ["temperatureItem6", "temperatureItem7"], [[10.0, 12.0], [11.0, 13.0]]
+            THERMAL_TRUSS_FIELDS, [[10.0, 12.0], [11.0, 13.0]]
         )
         self.gradients_frame = self.make_efd_frame(
-            list(GRADIENT_FIELDS.values()), [[0.01, -0.02, 0.1, -0.05]]
+            list(THERMAL_GRADIENT_UM_PER_C_PER_M), [[0.01, -0.02, 0.1, -0.05]]
         )
         self.efd_client = unittest.mock.AsyncMock()
         self.efd_client.select_time_series.side_effect = self.select_time_series
@@ -139,20 +139,34 @@ class TestCloseLoopLSSTCam(
         return (self.script,)
 
     @staticmethod
-    def make_efd_frame(columns, rows):
-        index = pd.date_range(
-            end=pd.Timestamp.now(tz="UTC"), periods=len(rows), freq="10s"
-        )
+    def make_efd_frame(columns, rows, age=0.0):
+        """Make a time-indexed frame whose last row is ``age`` s old."""
+        end = pd.Timestamp.now(tz="UTC") - pd.Timedelta(seconds=age)
+        index = pd.date_range(end=end, periods=len(rows), freq="10s")
         return pd.DataFrame(rows, columns=columns, index=index)
 
     async def select_time_series(self, topic, fields, start, end, index=None):
-        return self.truss_frame if topic == TRUSS_TOPIC else self.gradients_frame
+        return (
+            self.truss_frame
+            if topic == "lsst.sal.ESS.temperature"
+            else self.gradients_frame
+        )
 
     async def return_current_dof(self, *args, **kwargs):
         return types.SimpleNamespace(aggregatedDoF=self.state_0.copy())
 
     async def apply_dof_offset(self, value, **kwargs):
         self.state_0 += np.asarray(value)
+
+    def expected_thermal_v1(self, with_gradients=True):
+        """Return the v1 the pre-alignment should predict."""
+        v1_dz = THERMAL_INTERCEPT_UM + THERMAL_TRUSS_UM_PER_C * 11.5
+        if with_gradients:
+            v1_dz += sum(
+                coefficient * self.gradients_frame[field].mean()
+                for field, coefficient in THERMAL_GRADIENT_UM_PER_C_PER_M.items()
+            )
+        return v1_dz * THERMAL_V1_PER_UM_DZ
 
     async def return_zernikes(self, *args, **kwargs):
         return np.random.rand(19)
@@ -227,128 +241,65 @@ class TestCloseLoopLSSTCam(
         async with self.make_script():
             await self.configure_script(filter="r")
 
-            assert not self.script.thermal_prealignment["enabled"]
-            assert self.script.thermal_prealignment["truss_sal_index"] == 122
-            assert self.script.thermal_prealignment["truss_temperature_items"] == [6, 7]
-            assert self.script.thermal_prealignment["gradients_sal_index"] == 114
-
-    async def test_configure_thermal_prealignment(self):
-        async with self.make_script():
-            await self.configure_script(
-                filter="r",
-                thermal_prealignment=dict(enabled=True, lookback=120),
-            )
-
-            assert self.script.thermal_prealignment["enabled"]
-            assert self.script.thermal_prealignment["lookback"] == 120
-            # Entries not given take their defaults.
-            assert not self.script.thermal_prealignment["required"]
-            assert self.script.thermal_prealignment["max_data_age"] == 900
-            assert isinstance(self.script.trim_calculator, TrimCalculator)
-
-    async def test_configure_thermal_prealignment_bad_coefficients(self):
-        async with self.make_script():
-            with self.assertRaises(Exception):
-                await self.configure_script(
-                    filter="r",
-                    thermal_prealignment=dict(
-                        enabled=True, coefficients_path="/no/such/file.yaml"
-                    ),
-                )
-
-    def expected_thermal_v1(self, with_gradients=True):
-        """Return the v1 the pre-alignment should predict."""
-        calc = self.script.trim_calculator
-        if not with_gradients:
-            v1, _, _ = calc.predict_trim(truss_temp_c=11.5)
-            return v1
-        gradients = self.gradients_frame.iloc[0]
-        v1, _, _ = calc.predict_trim(
-            truss_temp_c=11.5,
-            z_gradient_c_per_m=gradients["zGradient"],
-            y_gradient_c_per_m=gradients["yGradient"],
-            radial_gradient_c_per_m=gradients["radialGradient"],
-            x_gradient_c_per_m=gradients["xGradient"],
-        )
-        return v1
-
-    def expected_thermal_offset(self, with_gradients=True):
-        """Return the DOF offset the pre-alignment should apply."""
-        return self.script.trim_calculator.dof_offset(
-            self.expected_thermal_v1(with_gradients), self.state_0
-        )
+            assert not self.script.thermal_prealignment
 
     async def test_run_thermal_prealignment(self):
         async with self.make_script():
             await self.configure_script(
-                filter="r",
-                set_roi=False,
-                thermal_prealignment=dict(enabled=True),
+                filter="r", set_roi=False, thermal_prealignment=True
             )
+            initial_state = self.state_0.copy()
             expected_v1 = self.expected_thermal_v1()
-            expected = self.expected_thermal_offset()
-            assert np.any(expected != 0)
 
             await self.script.run_thermal_prealignment()
 
-            np.testing.assert_allclose(self.script.thermal_dof_offset, expected)
-            self.script.mtcs.rem.mtaos.cmd_offsetDOF.set_start.assert_awaited_once()
             # The state is now at the predicted v1, and only the v1
             # components changed.
-            calc = self.script.trim_calculator
-            assert np.isclose(calc.v1_from_dof(self.state_0), expected_v1)
-            untouched = calc.v1_dof_vector == 0
+            v1 = np.dot(self.state_0, THERMAL_V1_DOF) / np.dot(
+                THERMAL_V1_DOF, THERMAL_V1_DOF
+            )
+            assert np.isclose(v1, expected_v1)
+            assert np.any(self.state_0 != initial_state)
+            untouched = THERMAL_V1_DOF == 0
             np.testing.assert_allclose(
-                self.state_0[untouched], 1.0 * (np.arange(50) < 5)[untouched]
+                self.state_0[untouched], initial_state[untouched]
             )
 
     async def test_run_thermal_prealignment_gradients_fallback(self):
         async with self.make_script():
             await self.configure_script(
-                filter="r",
-                set_roi=False,
-                thermal_prealignment=dict(enabled=True),
+                filter="r", set_roi=False, thermal_prealignment=True
             )
             self.gradients_frame = pd.DataFrame()
-            expected = self.expected_thermal_offset(with_gradients=False)
+            expected_v1 = self.expected_thermal_v1(with_gradients=False)
 
             await self.script.run_thermal_prealignment()
 
-            np.testing.assert_allclose(self.script.thermal_dof_offset, expected)
-            self.script.mtcs.rem.mtaos.cmd_offsetDOF.set_start.assert_awaited_once()
+            v1 = np.dot(self.state_0, THERMAL_V1_DOF) / np.dot(
+                THERMAL_V1_DOF, THERMAL_V1_DOF
+            )
+            assert np.isclose(v1, expected_v1)
 
-    async def test_run_thermal_prealignment_gradients_required(self):
+    async def test_run_thermal_prealignment_skipped(self):
+        """The step must not raise or move the DOFs when it fails."""
         async with self.make_script():
             await self.configure_script(
-                filter="r",
-                set_roi=False,
-                thermal_prealignment=dict(
-                    enabled=True, required=True, require_gradients=True
-                ),
+                filter="r", set_roi=False, thermal_prealignment=True
             )
-            self.gradients_frame = pd.DataFrame()
+            initial_state = self.state_0.copy()
 
-            with self.assertRaises(RuntimeError):
+            for truss_frame in [
+                pd.DataFrame(),
+                self.make_efd_frame(THERMAL_TRUSS_FIELDS, [[np.nan, np.nan]]),
+                self.make_efd_frame(THERMAL_TRUSS_FIELDS, [[10.0, 12.0]], age=2000),
+            ]:
+                self.truss_frame = truss_frame
                 await self.script.run_thermal_prealignment()
 
-            self.script.mtcs.rem.mtaos.cmd_offsetDOF.set_start.assert_not_awaited()
-
-    async def test_run_thermal_prealignment_not_required(self):
-        async with self.make_script():
-            await self.configure_script(
-                filter="r",
-                set_roi=False,
-                thermal_prealignment=dict(enabled=True),
-            )
-            self.script.get_efd_client = unittest.mock.AsyncMock(
-                side_effect=RuntimeError("No EFD")
-            )
-
-            # Must not raise: the closed loop continues without it.
+            self.script.get_efd_client.side_effect = RuntimeError("No EFD")
             await self.script.run_thermal_prealignment()
 
-            assert self.script.thermal_dof_offset is None
-            self.script.mtcs.rem.mtaos.cmd_offsetDOF.set_start.assert_not_awaited()
+            np.testing.assert_array_equal(self.state_0, initial_state)
 
     async def test_run_thermal_prealignment_no_apply_corrections(self):
         async with self.make_script():
@@ -356,69 +307,13 @@ class TestCloseLoopLSSTCam(
                 filter="r",
                 set_roi=False,
                 apply_corrections=False,
-                thermal_prealignment=dict(enabled=True),
+                thermal_prealignment=True,
             )
-            expected = self.expected_thermal_offset()
+            initial_state = self.state_0.copy()
 
             await self.script.run_thermal_prealignment()
 
-            np.testing.assert_allclose(self.script.thermal_dof_offset, expected)
-            self.script.mtcs.rem.mtaos.cmd_offsetDOF.set_start.assert_not_awaited()
-
-    async def test_run_thermal_prealignment_config_telemetry(self):
-        async with self.make_script():
-            gradients = self.gradients_frame.iloc[0]
-            await self.configure_script(
-                filter="r",
-                set_roi=False,
-                thermal_prealignment=dict(
-                    enabled=True,
-                    telemetry=dict(
-                        truss_temp_c=11.5,
-                        x_gradient_c_per_m=float(gradients["xGradient"]),
-                        y_gradient_c_per_m=float(gradients["yGradient"]),
-                        z_gradient_c_per_m=float(gradients["zGradient"]),
-                        radial_gradient_c_per_m=float(gradients["radialGradient"]),
-                    ),
-                ),
-            )
-            expected = self.expected_thermal_offset()
-
-            await self.script.run_thermal_prealignment()
-
-            # The EFD is not consulted and the offset matches the one the
-            # same values would give from the EFD.
-            self.script.get_efd_client.assert_not_awaited()
-            np.testing.assert_allclose(self.script.thermal_dof_offset, expected)
-            self.script.mtcs.rem.mtaos.cmd_offsetDOF.set_start.assert_awaited_once()
-
-    async def test_run_thermal_prealignment_config_telemetry_truss_only(self):
-        async with self.make_script():
-            await self.configure_script(
-                filter="r",
-                set_roi=False,
-                thermal_prealignment=dict(
-                    enabled=True, telemetry=dict(truss_temp_c=11.5)
-                ),
-            )
-            expected = self.expected_thermal_offset(with_gradients=False)
-
-            await self.script.run_thermal_prealignment()
-
-            self.script.get_efd_client.assert_not_awaited()
-            np.testing.assert_allclose(self.script.thermal_dof_offset, expected)
-
-    async def test_configure_thermal_prealignment_bad_telemetry(self):
-        async with self.make_script():
-            for telemetry in [
-                dict(z_gradient_c_per_m=0.1),  # truss_temp_c missing
-                dict(truss_temp_c=11.5, bogus=1.0),
-            ]:
-                with self.assertRaises(Exception):
-                    await self.configure_script(
-                        filter="r",
-                        thermal_prealignment=dict(enabled=True, telemetry=telemetry),
-                    )
+            np.testing.assert_array_equal(self.state_0, initial_state)
 
     async def test_run_with_thermal_prealignment(self):
         async with self.make_script():
@@ -427,13 +322,13 @@ class TestCloseLoopLSSTCam(
                 filter="r",
                 used_dofs=[0, 1, 2, 3, 4],
                 set_roi=False,
-                thermal_prealignment=dict(enabled=True),
+                thermal_prealignment=True,
             )
+            self.script.run_thermal_prealignment = unittest.mock.AsyncMock()
 
             await self.run_script()
 
-            self.script.mtcs.rem.mtaos.cmd_offsetDOF.set_start.assert_awaited_once()
-            assert self.script.thermal_dof_offset is not None
+            self.script.run_thermal_prealignment.assert_awaited_once()
 
     async def test_run(self):
         # Start the test itself
