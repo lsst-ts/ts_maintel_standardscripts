@@ -23,6 +23,7 @@ __all__ = ["BaseCloseLoop"]
 
 import abc
 import asyncio
+import os
 import types
 import typing
 
@@ -30,14 +31,54 @@ import astropy.units as u
 import numpy as np
 import yaml
 from astropy.coordinates import Angle
+from astropy.time import Time, TimeDelta
 from lsst.ts import salobj
 from lsst.ts.observatory.control import BaseCamera
 from lsst.ts.observatory.control.maintel.mtcs import MTCS, MTCSUsages
 from lsst.ts.observatory.control.utils.enums import ClosedLoopMode, DOFName
 from lsst.ts.observatory.control.utils.extras.guider_roi import GuiderROIs
 
+from .set_dof import EFD_NAMES
+
+try:
+    from lsst_efd_client import EfdClient
+except ImportError:
+    EfdClient = None
+
 STD_TIMEOUT = 10
 CMD_TIMEOUT = 400
+
+# Thermal pre-alignment: the focus (v-mode-1) trim is predicted from the TMA
+# truss temperature and the M1M3 thermal gradients with a linear model fitted
+# over 60k LSSTCam science visits (RSO-1065). The telemetry is averaged over
+# the last THERMAL_LOOKBACK seconds; data older than THERMAL_MAX_DATA_AGE
+# seconds is treated as unavailable.
+THERMAL_PREALIGNMENT_DURATION = 60  # Estimated duration of the step (s).
+THERMAL_LOOKBACK = 600
+THERMAL_MAX_DATA_AGE = 900
+# The truss temperature is the mean of the +X/+Y and -X/-Y truss structure
+# channels of the ESS:122 (M2 hexapod readout) temperature telemetry. The
+# gradients are the ESS:114 m1m3ThermalGradients telemetry.
+THERMAL_TRUSS_SAL_INDEX = 122
+THERMAL_TRUSS_FIELDS = ["temperatureItem6", "temperatureItem7"]
+THERMAL_GRADIENTS_SAL_INDEX = 114
+# Fitted focus response [um of equivalent hexapod dz]: intercept, coefficient
+# on the truss temperature [per deg C] and on each gradient [per (deg C/m)].
+THERMAL_INTERCEPT_UM = -1392.01
+THERMAL_TRUSS_UM_PER_C = 125.09
+THERMAL_GRADIENT_UM_PER_C_PER_M = dict(
+    zGradient=-811.32, yGradient=-1254.02, radialGradient=-949.08, xGradient=-3374.73
+)
+# v-mode-1 amplitude per um of equivalent hexapod dz, and the DOF content of
+# one unit of v-mode-1 [um per unit v1] as a 50-element DOF vector.
+THERMAL_V1_PER_UM_DZ = 9.00851e-04
+THERMAL_V1_DOF = np.zeros(len(DOFName))
+THERMAL_V1_DOF[[DOFName.M2_dz, DOFName.Cam_dz, DOFName.M1M3_B3, DOFName.M2_B5]] = [
+    -463.898287,
+    -645.657870,
+    0.009390,
+    0.007551,
+]
 
 
 class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
@@ -55,6 +96,8 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
     -----
     **Checkpoints**
 
+    - "Thermal pre-alignment...": Before the thermal pre-alignment step,
+        if enabled.
     - "Taking image...": If taking in-focus detection image.
     - "[N/MAX_ITER]: Closed loop starting...": Before each closed loop
         iteration, where "N" is the iteration number and "MAX_ITER"
@@ -71,6 +114,10 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
     apply_corrections attribute.  if apply_corrections is off, the script
     will take a series of intra/extra focal data instead, and the number
     of pairs is the number of maximum iterations.
+
+    If thermal_prealignment is enabled, the script first predicts the focus
+    (v-mode-1) trim from the TMA truss temperature and the M1M3 thermal
+    gradients in the EFD, and offsets the DOF state to it.
     """
 
     def __init__(self, index=1, descr="") -> None:
@@ -92,6 +139,8 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
         # Guider ROI
         self.roi_spec = None
         self.set_roi_failed = False
+
+        self.thermal_prealignment = False
 
         # Define operation mode handler function
         self.operation_model_handlers = {
@@ -311,6 +360,17 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                   type: array
                   items:
                       type: string
+              thermal_prealignment:
+                description: >-
+                    Before the first iteration, predict the focus (v-mode-1)
+                    trim from the TMA truss temperature and the M1M3 thermal
+                    gradients in the EFD, and offset the DOF state to it.
+                    If the gradients are unavailable, the truss-only
+                    prediction is used; if the truss temperature is
+                    unavailable, the step is skipped with a warning. The
+                    offset is only applied if apply_corrections is true.
+                type: boolean
+                default: false
             additionalProperties: false
         """
         return yaml.safe_load(schema_yaml)
@@ -399,6 +459,8 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
         if hasattr(config, "ignore"):
             self.mtcs.disable_checks_for_components(components=config.ignore)
 
+        self.thermal_prealignment = config.thermal_prealignment
+
     async def get_guider_roi(self, roi_spec_common):
         """Retrieve the guider roi from the current telescope position."""
         try:
@@ -474,6 +536,8 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
             + self.camera.read_out_time
             + self.camera.shutter_time
         )
+        if self.thermal_prealignment:
+            metadata.duration += THERMAL_PREALIGNMENT_DURATION
         metadata.filter = f"{self.filter}"
 
     async def take_intra_extra_focal_images(
@@ -684,6 +748,135 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
                 return self.gain_sequence[-1]
             return self.gain_sequence[iteration]
 
+    async def get_efd_client(self) -> typing.Any:
+        """Return an EFD client for the current site."""
+        if EfdClient is None:
+            raise RuntimeError("Could not import lsst_efd_client library.")
+        site = os.environ.get("LSST_SITE")
+        if site not in EFD_NAMES:
+            raise RuntimeError(f"No EFD for LSST_SITE={site!r}.")
+        return EfdClient(EFD_NAMES[site])
+
+    async def get_thermal_telemetry(self) -> tuple[float, dict[str, float] | None]:
+        """Query the EFD for the thermal telemetry, averaged over the last
+        THERMAL_LOOKBACK seconds.
+
+        Returns
+        -------
+        truss_temp : `float`
+            Mean TMA truss temperature [deg C].
+        gradients : `dict` [`str`, `float`] or `None`
+            Mean M1M3 thermal gradients keyed by field [deg C per m], or
+            `None` if they are missing, stale or not finite.
+
+        Raises
+        ------
+        RuntimeError
+            If the truss temperature is missing, stale or not finite.
+        """
+        client = await self.get_efd_client()
+        now = Time.now()
+        start = now - TimeDelta(THERMAL_LOOKBACK, format="sec")
+
+        async def mean_of(topic, fields, index):
+            """Return the mean of each field, or None if there is no recent
+            data."""
+            data = await client.select_time_series(
+                topic, fields, start, now, index=index
+            )
+            if data.empty:
+                self.log.warning(
+                    f"No {topic} from ESS:{index} in the last {THERMAL_LOOKBACK} s."
+                )
+                return None
+            age = (now - Time(data.index[-1])).sec
+            if age > THERMAL_MAX_DATA_AGE:
+                self.log.warning(
+                    f"{topic} from ESS:{index} is {age:.0f} s old; ignoring it."
+                )
+                return None
+            return data[fields].astype(float).mean()
+
+        truss = await mean_of(
+            "lsst.sal.ESS.temperature", THERMAL_TRUSS_FIELDS, THERMAL_TRUSS_SAL_INDEX
+        )
+        truss_temp = np.nan if truss is None else truss.mean()
+        if not np.isfinite(truss_temp):
+            raise RuntimeError("TMA truss temperature unavailable.")
+
+        gradients = await mean_of(
+            "lsst.sal.ESS.m1m3ThermalGradients",
+            list(THERMAL_GRADIENT_UM_PER_C_PER_M),
+            THERMAL_GRADIENTS_SAL_INDEX,
+        )
+        if gradients is not None and not np.all(np.isfinite(gradients)):
+            self.log.warning("M1M3 thermal gradients are not finite; ignoring them.")
+            gradients = None
+        return float(truss_temp), None if gradients is None else gradients.to_dict()
+
+    async def get_thermal_dof_offset(self) -> np.ndarray:
+        """Return the DOF offset that moves the current DOF state to the
+        focus (v-mode-1) predicted from the thermal telemetry.
+
+        Only the v-mode-1 component of the state is changed. If the M1M3
+        gradients are unavailable, the truss-only prediction is used.
+        """
+        truss_temp, gradients = await self.get_thermal_telemetry()
+        v1_dz = THERMAL_INTERCEPT_UM + THERMAL_TRUSS_UM_PER_C * truss_temp
+        if gradients is None:
+            self.log.warning(
+                "M1M3 thermal gradients unavailable; using the truss-only prediction."
+            )
+        else:
+            v1_dz += sum(
+                coefficient * gradients[field]
+                for field, coefficient in THERMAL_GRADIENT_UM_PER_C_PER_M.items()
+            )
+        v1_target = v1_dz * THERMAL_V1_PER_UM_DZ
+
+        dof = await self.mtcs.rem.mtaos.evt_degreeOfFreedom.aget(timeout=STD_TIMEOUT)
+        v1_current = np.dot(dof.aggregatedDoF, THERMAL_V1_DOF) / np.dot(
+            THERMAL_V1_DOF, THERMAL_V1_DOF
+        )
+        self.log.info(
+            f"Thermal pre-alignment: truss temperature {truss_temp:.2f} C, "
+            f"gradients {gradients}; predicted v1={v1_target:+.5f} "
+            f"({v1_dz:+.1f} um of hexapod dz), current v1={v1_current:+.5f}."
+        )
+        return (v1_target - v1_current) * THERMAL_V1_DOF
+
+    async def run_thermal_prealignment(self, checkpoint: bool = False) -> None:
+        """Offset the DOF state to the thermally predicted focus.
+
+        If the offset cannot be computed, log a warning and continue: the
+        closed loop corrects the focus anyway. The offset is only applied if
+        ``apply_corrections`` is set.
+
+        Parameters
+        ----------
+        checkpoint : `bool`, optional
+            Should issue checkpoints
+        """
+        if checkpoint:
+            await self.checkpoint("Thermal pre-alignment...")
+        try:
+            offset = await self.get_thermal_dof_offset()
+        except Exception as e:
+            self.log.warning(
+                f"Thermal pre-alignment failed, continuing without it: {e}",
+                exc_info=True,
+            )
+            return
+        if not self.apply_corrections:
+            self.log.info(
+                "apply_corrections is off; not applying the thermal DOF offset."
+            )
+            return
+        await self.mtcs.rem.mtaos.cmd_offsetDOF.set_start(
+            value=offset.tolist(), timeout=CMD_TIMEOUT
+        )
+        self.log.info("Thermal DOF offset applied.")
+
     async def arun(self, checkpoint: bool = False) -> None:
         """Perform wavefront error measurements and DOF adjustments until the
         thresholds are reached.
@@ -698,6 +891,9 @@ class BaseCloseLoop(salobj.BaseScript, metaclass=abc.ABCMeta):
         RuntimeError:
             If coordinates are malformed.
         """
+
+        if self.thermal_prealignment:
+            await self.run_thermal_prealignment(checkpoint)
 
         for i in range(self.max_iter):
             if all(
