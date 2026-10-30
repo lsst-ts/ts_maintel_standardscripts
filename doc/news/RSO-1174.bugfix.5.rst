@@ -1,0 +1,1 @@
+Updated ``maintel/daytime_checkout/base_telescope_checkout.py`` to restrict the ``MTM1M3TS`` remote to the ``summaryState`` and ``engineeringMode`` events.
