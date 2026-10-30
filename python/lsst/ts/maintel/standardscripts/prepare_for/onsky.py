@@ -192,7 +192,9 @@ class PrepareForOnSky(salobj.BaseScript):
         """Initialize OCPS:101 if not already initialized."""
         if self.ocps is None:
             self.log.debug("Creating OCPS:101 remote instance.")
-            self.ocps = salobj.Remote(self.domain, "OCPS", index=101)
+            self.ocps = salobj.Remote(
+                self.domain, "OCPS", index=101, include=["summaryState"]
+            )
             await self.ocps.start_task
         else:
             self.log.debug("OCPS:101 already initialized.")
@@ -201,7 +203,9 @@ class PrepareForOnSky(salobj.BaseScript):
         """Initialize MTM1M3TS remote if not already initialized."""
         if self.mtm1m3ts is None:
             self.log.debug("Creating MTM1M3TS remote instance.")
-            self.mtm1m3ts = salobj.Remote(self.domain, "MTM1M3TS")
+            self.mtm1m3ts = salobj.Remote(
+                self.domain, "MTM1M3TS", include=["summaryState", "engineeringMode"]
+            )
             await self.mtm1m3ts.start_task
         else:
             self.log.debug("MTM1M3TS already initialized.")
