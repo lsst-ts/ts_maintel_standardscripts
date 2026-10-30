@@ -115,7 +115,9 @@ class PrepareForFlat(salobj.BaseScript):
         """Initialize MTM1M3TS remote if not already initialized."""
         if self.mtm1m3ts is None:
             self.log.debug("Creating MTM1M3TS remote instance.")
-            self.mtm1m3ts = salobj.Remote(self.domain, "MTM1M3TS")
+            self.mtm1m3ts = salobj.Remote(
+                self.domain, "MTM1M3TS", include=["summaryState", "engineeringMode"]
+            )
             await self.mtm1m3ts.start_task
         else:
             self.log.debug("MTM1M3TS already initialized.")
