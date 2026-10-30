@@ -172,7 +172,9 @@ class BaseTelescopeCheckout(salobj.BaseScript):
 
     async def configure_mtm1m3ts(self) -> None:
         if self.mtm1m3ts is None:
-            self.mtm1m3ts = salobj.Remote(self.domain, "MTM1M3TS")
+            self.mtm1m3ts = salobj.Remote(
+                self.domain, "MTM1M3TS", include=["summaryState", "engineeringMode"]
+            )
             await self.mtm1m3ts.start_task
 
     async def configure(self, config: types.SimpleNamespace) -> None:
