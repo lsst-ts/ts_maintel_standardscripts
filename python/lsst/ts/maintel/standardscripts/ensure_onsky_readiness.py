@@ -147,7 +147,6 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
                 items:
                   type: string
                   enum: ["ACCELERATIONFORCES", "BALANCEFORCES", "VELOCITYFORCES", "BOOSTERVALVES"]
-            default: "default"
           enable_flags:
             description: >-
               (Deprecated - RSO-592) Corresponding booleans to enable or disable
