@@ -1,0 +1,1 @@
+Updated ``maintel/prepare_for/flat.py`` to restrict the ``MTM1M3TS`` remote to the ``summaryState`` and ``engineeringMode`` events.

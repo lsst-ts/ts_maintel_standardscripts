@@ -106,7 +106,9 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         """Configure OCPS if not already configured."""
         if self.ocps is None:
             self.log.debug("Creating OCPS instance.")
-            self.ocps = salobj.Remote(self.domain, "OCPS", index=101)
+            self.ocps = salobj.Remote(
+                self.domain, "OCPS", index=101, include=["summaryState"]
+            )
             await self.ocps.start_task
         else:
             self.log.debug("OCPS already initialized.")
@@ -115,7 +117,9 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
         """Configure MTM1M3TS remote if not already configured."""
         if self.mtm1m3ts is None:
             self.log.debug("Creating MTM1M3TS remote instance.")
-            self.mtm1m3ts = salobj.Remote(self.domain, "MTM1M3TS")
+            self.mtm1m3ts = salobj.Remote(
+                self.domain, "MTM1M3TS", include=["summaryState", "engineeringMode"]
+            )
             await self.mtm1m3ts.start_task
         else:
             self.log.debug("MTM1M3TS already initialized.")
@@ -143,7 +147,6 @@ class EnsureOnSkyReadiness(salobj.BaseScript):
                 items:
                   type: string
                   enum: ["ACCELERATIONFORCES", "BALANCEFORCES", "VELOCITYFORCES", "BOOSTERVALVES"]
-            default: "default"
           enable_flags:
             description: >-
               (Deprecated - RSO-592) Corresponding booleans to enable or disable
