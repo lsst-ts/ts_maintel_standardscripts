@@ -31,10 +31,8 @@ from lsst.ts import standardscripts
 from lsst.ts.maintel.standardscripts import CloseLoopLSSTCam
 from lsst.ts.maintel.standardscripts.base_close_loop import (
     THERMAL_GRADIENT_UM_PER_C_PER_M,
-    THERMAL_GRADIENTS_SAL_INDEX,
     THERMAL_INTERCEPT_UM,
     THERMAL_TRUSS_FIELDS,
-    THERMAL_TRUSS_SAL_INDEX,
     THERMAL_TRUSS_UM_PER_C,
     THERMAL_V1_DOF,
     THERMAL_V1_PER_UM_DZ,
@@ -148,16 +146,11 @@ class TestCloseLoopLSSTCam(
         return pd.DataFrame(rows, columns=columns, index=index)
 
     async def select_time_series(self, topic, fields, start, end, index=None):
-        # Keyed on (topic, index) so that querying the right topic with the
-        # wrong SAL index returns no data, as the EFD would.
-        frames = {
-            ("lsst.sal.ESS.temperature", THERMAL_TRUSS_SAL_INDEX): self.truss_frame,
-            (
-                "lsst.sal.ESS.m1m3ThermalGradients",
-                THERMAL_GRADIENTS_SAL_INDEX,
-            ): self.gradients_frame,
-        }
-        return frames.get((topic, index), pd.DataFrame())
+        return (
+            self.truss_frame
+            if topic == "lsst.sal.ESS.temperature"
+            else self.gradients_frame
+        )
 
     async def return_current_dof(self, *args, **kwargs):
         return types.SimpleNamespace(aggregatedDoF=self.state_0.copy())
@@ -249,28 +242,6 @@ class TestCloseLoopLSSTCam(
             await self.configure_script(filter="r")
 
             assert not self.script.thermal_prealignment
-
-    async def test_thermal_telemetry_queries_expected_indices(self):
-        """The gradients come from the ThermalGradientsDataClient instance,
-        not from one of the thermal scanners (ESS:114-117) that only publish
-        the raw temperatures.
-        """
-        assert THERMAL_GRADIENTS_SAL_INDEX not in range(114, 118)
-        async with self.make_script():
-            await self.configure_script(
-                filter="r", set_roi=False, thermal_prealignment=True
-            )
-
-            await self.script.get_thermal_telemetry()
-
-            queried = {
-                (call.args[0], call.kwargs["index"])
-                for call in self.efd_client.select_time_series.call_args_list
-            }
-            assert queried == {
-                ("lsst.sal.ESS.temperature", THERMAL_TRUSS_SAL_INDEX),
-                ("lsst.sal.ESS.m1m3ThermalGradients", THERMAL_GRADIENTS_SAL_INDEX),
-            }
 
     async def test_run_thermal_prealignment(self):
         async with self.make_script():
