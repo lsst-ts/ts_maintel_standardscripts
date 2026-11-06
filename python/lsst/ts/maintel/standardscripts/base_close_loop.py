@@ -58,10 +58,13 @@ THERMAL_LOOKBACK = 600
 THERMAL_MAX_DATA_AGE = 900
 # The truss temperature is the mean of the +X/+Y and -X/-Y truss structure
 # channels of the ESS:122 (M2 hexapod readout) temperature telemetry. The
-# gradients are the ESS:114 m1m3ThermalGradients telemetry.
+# gradients are the m1m3ThermalGradients telemetry of ESS:130, the instance
+# running the ThermalGradientsDataClient; note that this is not one of the
+# thermal scanners (ESS:114-117, lsst.ts.xml.tables.m1m3.Scanner), which
+# publish the raw temperatures the gradients are fitted to.
 THERMAL_TRUSS_SAL_INDEX = 122
 THERMAL_TRUSS_FIELDS = ["temperatureItem6", "temperatureItem7"]
-THERMAL_GRADIENTS_SAL_INDEX = 114
+THERMAL_GRADIENTS_SAL_INDEX = 130
 # Fitted focus response [um of equivalent hexapod dz]: intercept, coefficient
 # on the truss temperature [per deg C] and on each gradient [per (deg C/m)].
 THERMAL_INTERCEPT_UM = -1392.01
