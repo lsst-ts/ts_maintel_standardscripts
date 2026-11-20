@@ -617,3 +617,18 @@ class TestEnsureOnSkyReadiness(
             await self.run_script()
             self.script.mtm1m3ts.evt_summaryState.aget.assert_awaited_once()
             self.script.mtm1m3ts.evt_engineeringMode.aget.assert_awaited_once()
+
+    async def test_configure_deprecated_slew_flags_warning(self):
+        """Test the deprecation warning is only logged when slew_flags or
+        enable_flags are passed.
+        """
+        async with self.make_script():
+            with mock.patch.object(self.script.log, "warning") as mock_warning:
+                await self.configure_script()
+                mock_warning.assert_not_called()
+
+        async with self.make_script():
+            with mock.patch.object(self.script.log, "warning") as mock_warning:
+                await self.configure_script(slew_flags="default")
+                mock_warning.assert_called_once()
+                assert "deprecated (RSO-592)" in mock_warning.call_args[0][0]

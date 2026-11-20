@@ -1,0 +1,3 @@
+Removed the ``slew_flags`` schema default in ``maintel/ensure_onsky_readiness.py``.
+The default caused the ``slew_flags`` and  ``enable_flags`` deprecation warning to be logged on every run. 
+It is now only logged when those options are passed.

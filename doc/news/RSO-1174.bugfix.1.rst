@@ -1,0 +1,2 @@
+Updated ``maintel/ensure_onsky_readiness.py`` to restrict the ``OCPS:101`` remote to the ``summaryState`` event and the ``MTM1M3TS`` remote to the ``summaryState`` and ``engineeringMode`` events.
+Subscribing to every OCPS topic made the script hang during configuration while loading old OCPS log messages.
