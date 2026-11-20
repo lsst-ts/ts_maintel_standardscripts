@@ -1,0 +1,1 @@
+Update `check_actuators` script to generate plots comparing applied versus measured actuator forces for failed tests and store them in the LFA.
