@@ -8,6 +8,17 @@ Version History
 
 .. towncrier release notes start
 
+v0.11.0 (2026-11-20)
+====================
+
+New Features
+------------
+
+- Added an optional thermal pre-alignment step to ``base_close_loop.py``, enabled with the new ``thermal_prealignment`` configuration flag.
+  Before the first closed loop iteration, the script retrieves the TMA truss temperature (``ESS:122``) and the M1M3 thermal gradients (``ESS:132``, ``m1m3ThermalGradients``) from the EFD, predicts the focus (v-mode-1) trim with a fitted linear model and offsets the DOF state to it.
+  If the gradients are unavailable it falls back to the truss-only prediction, and if the step fails altogether it logs a warning and continues. (`RSO-1065 <https://rubinobs.atlassian.net//browse/RSO-1065>`_)
+
+
 v0.10.0 (2026-09-30)
 ====================
 
